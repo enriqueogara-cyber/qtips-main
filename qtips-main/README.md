@@ -1,50 +1,108 @@
-# Welcome to your Expo app 👋
+# QTips
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Plataforma de propinas digitales para restaurantes. Los clientes escanean un QR y dejan propina en segundos, sin registrarse.
 
-## Get started
+## Stack
 
-1. Install dependencies
+- **Framework**: Expo 54 + expo-router v6 (React Native Web)
+- **Auth / DB**: Firebase Auth + Cloud Firestore
+- **Backend**: Firebase Cloud Functions (europe-west1)
+- **Pagos**: Stripe Connect Express + Stripe Checkout
+- **Hosting**: Vercel (SPA estática)
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Instalación
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Desarrollo
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+# Servidor local (localhost)
+npm run dev
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+# Servidor local accesible desde móvil en la misma red WiFi
+npm run dev:mobile
+```
 
-## Join the community
+La URL de móvil aparece en la terminal: `http://192.168.X.X:8081`
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Build
+
+```bash
+npm run build
+```
+
+Genera la SPA estática en `dist/`. Vercel la sirve automáticamente.
+
+---
+
+## Verificación
+
+```bash
+# TypeScript
+npm run typecheck
+
+# ESLint
+npm run lint
+```
+
+---
+
+## Variables de entorno
+
+Copia `.env.example` como `.env.local` y rellena los valores:
+
+```env
+EXPO_PUBLIC_FUNCTIONS_URL=https://europe-west1-qtips-edcc2.cloudfunctions.net
+EXPO_PUBLIC_APP_URL=https://qtips-main.vercel.app
+EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+```
+
+Las variables del servidor (`STRIPE_SECRET_KEY`, etc.) se configuran directamente en Firebase Console.
+
+---
+
+## Stripe (test)
+
+1. Usa la tarjeta `4242 4242 4242 4242` para simular pagos exitosos.
+2. El CVC y fecha de caducidad pueden ser cualquier valor válido.
+3. Los pagos de test aparecen marcados con la etiqueta **TEST** en movimientos.
+
+---
+
+## Firebase / Firestore
+
+```bash
+# Desplegar reglas de seguridad
+firebase deploy --only firestore:rules
+
+# Desplegar Cloud Functions
+cd functions && npm run deploy
+```
+
+---
+
+## Vercel
+
+El proyecto se despliega automáticamente con cada push a `master`.
+
+Para despliegue manual:
+```bash
+vercel --prod
+```
+
+---
+
+## Documentación
+
+- `docs/QTIPS_TECHNICAL_AUDIT.md` — Auditoría técnica completa
+- `docs/QTIPS_PRODUCTION_IMPLEMENTATION.md` — Cambios realizados y configuración pendiente
+- `.env.example` — Variables de entorno necesarias

@@ -3,12 +3,12 @@ import { useRouter } from "expo-router";
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDocs,
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
@@ -22,13 +22,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { EmployeeRowSkeleton } from "../../../components/ui/Skeleton";
+import { C, RADIUS, SHADOW } from "../../../constants/theme";
 import { auth, db } from "../../../lib/firebase";
-import { C, SHADOW, RADIUS } from "../../../constants/theme";
 
 type Employee = {
   id: string;
   name: string;
   role: string;
+  status: "active" | "inactive";
 };
 
 export default function EmployeesScreen() {
@@ -39,109 +41,82 @@ export default function EmployeesScreen() {
   const [role, setRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
   const [roleFocused, setRoleFocused] = useState(false);
 
   const loadEmployees = async () => {
     const user = auth.currentUser;
-
-    if (!user) {
-      setLoading(false);
-      Alert.alert("Error", "Usuario no autenticado");
-      return;
-    }
+    if (!user) { setLoading(false); return; }
 
     try {
-      const employeesRef = collection(db, "restaurants", user.uid, "employees");
-      const employeesQuery = query(employeesRef, orderBy("createdAt", "desc"));
-      const snapshot = await getDocs(employeesQuery);
-
-      const employeesList: Employee[] = snapshot.docs.map((docItem) => ({
-        id: docItem.id,
-        name: docItem.data().name ?? "",
-        role: docItem.data().role ?? "",
-      }));
-
-      setEmployees(employeesList);
-    } catch (error: any) {
-      console.log("Load employees error:", error);
-      Alert.alert("Error", error?.message || "No se pudieron cargar los empleados");
+      const ref = collection(db, "restaurants", user.uid, "employees");
+      const snap = await getDocs(query(ref, orderBy("createdAt", "desc")));
+      setEmployees(
+        snap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name ?? "",
+          role: d.data().role ?? "",
+          status: d.data().status ?? "active",
+        }))
+      );
+    } catch (error: unknown) {
+      const e = error as Error;
+      Alert.alert("Error", e?.message || "No se pudieron cargar los empleados");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadEmployees();
-  }, []);
+  useEffect(() => { loadEmployees(); }, []);
 
-  const handleAddEmployee = async () => {
+  const handleAdd = async () => {
     const user = auth.currentUser;
-
-    if (!user) {
-      Alert.alert("Error", "Usuario no autenticado");
-      return;
-    }
-
+    if (!user) { Alert.alert("Error", "Usuario no autenticado"); return; }
     if (!name.trim() || !role.trim()) {
-      Alert.alert("Error", "Completa nombre y puesto");
+      Alert.alert("Campos requeridos", "Completa nombre y puesto");
       return;
     }
 
+    setSaving(true);
     try {
-      setSaving(true);
-
-      const employeesRef = collection(db, "restaurants", user.uid, "employees");
-
-      await addDoc(employeesRef, {
+      await addDoc(collection(db, "restaurants", user.uid, "employees"), {
         name: name.trim(),
         role: role.trim(),
+        status: "active",
         createdAt: serverTimestamp(),
       });
-
       setName("");
       setRole("");
-
       await loadEmployees();
-    } catch (error: any) {
-      console.log("Add employee error:", error);
-      Alert.alert("Error", error?.message || "No se pudo añadir el empleado");
+    } catch (error: unknown) {
+      const e = error as Error;
+      Alert.alert("Error", e?.message || "No se pudo añadir el empleado");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDeleteEmployee = (employeeId: string, employeeName: string) => {
+  const handleDeactivate = (emp: Employee) => {
     Alert.alert(
-      "Eliminar empleado",
-      `¿Seguro que quieres eliminar a ${employeeName}?`,
+      "Desactivar empleado",
+      `${emp.name} dejará de aparecer en nuevas propinas. Su historial se conserva.`,
       [
         { text: "Cancelar", style: "cancel" },
         {
-          text: "Eliminar",
+          text: "Desactivar",
           style: "destructive",
           onPress: async () => {
             const user = auth.currentUser;
-
-            if (!user) {
-              Alert.alert("Error", "Usuario no autenticado");
-              return;
-            }
-
+            if (!user) return;
             try {
-              const employeeRef = doc(
-                db,
-                "restaurants",
-                user.uid,
-                "employees",
-                employeeId
+              await updateDoc(
+                doc(db, "restaurants", user.uid, "employees", emp.id),
+                { status: "inactive" }
               );
-
-              await deleteDoc(employeeRef);
               await loadEmployees();
-            } catch (error: any) {
-              console.log("Delete employee error:", error);
-              Alert.alert("Error", error?.message || "No se pudo eliminar el empleado");
+            } catch {
+              Alert.alert("Error", "No se pudo desactivar el empleado");
             }
           },
         },
@@ -149,15 +124,29 @@ export default function EmployeesScreen() {
     );
   };
 
-  function getInitials(n: string): string {
-    return n.trim().split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
-  }
+  const handleReactivate = async (emp: Employee) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await updateDoc(
+        doc(db, "restaurants", user.uid, "employees", emp.id),
+        { status: "active" }
+      );
+      await loadEmployees();
+    } catch {
+      Alert.alert("Error", "No se pudo reactivar el empleado");
+    }
+  };
+
+  const active = employees.filter((e) => e.status === "active");
+  const inactive = employees.filter((e) => e.status === "inactive");
 
   return (
     <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.container}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backRow}>
@@ -166,22 +155,22 @@ export default function EmployeesScreen() {
           </TouchableOpacity>
 
           <Text style={styles.title}>Empleados</Text>
-          <Text style={styles.subtitle}>Gestiona quién recibe propinas</Text>
+          <Text style={styles.subtitle}>
+            Gestiona quién aparece como opción al dejar propinas
+          </Text>
 
-          {/* Add employee form */}
+          {/* Add form */}
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>Añadir empleado</Text>
 
-            <View style={[styles.inputWrapper, nameFocused && styles.inputWrapperFocused]}>
-              <Ionicons
-                name="person-outline"
-                size={16}
+            <Text style={styles.fieldLabel}>Nombre *</Text>
+            <View style={[styles.inputWrapper, nameFocused && styles.inputFocused]}>
+              <Ionicons name="person-outline" size={16}
                 color={nameFocused ? C.VIOLET_PRIMARY : C.TEXT_TERTIARY}
-                style={styles.inputIcon}
-              />
+                style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Nombre"
+                placeholder="Nombre completo"
                 placeholderTextColor={C.TEXT_TERTIARY}
                 value={name}
                 onChangeText={setName}
@@ -190,16 +179,14 @@ export default function EmployeesScreen() {
               />
             </View>
 
-            <View style={[styles.inputWrapper, roleFocused && styles.inputWrapperFocused]}>
-              <Ionicons
-                name="briefcase-outline"
-                size={16}
+            <Text style={styles.fieldLabel}>Puesto *</Text>
+            <View style={[styles.inputWrapper, roleFocused && styles.inputFocused]}>
+              <Ionicons name="briefcase-outline" size={16}
                 color={roleFocused ? C.VIOLET_PRIMARY : C.TEXT_TERTIARY}
-                style={styles.inputIcon}
-              />
+                style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Puesto (ej. Camarero)"
+                placeholder="Ej. Camarero, Barista"
                 placeholderTextColor={C.TEXT_TERTIARY}
                 value={role}
                 onChangeText={setRole}
@@ -211,123 +198,163 @@ export default function EmployeesScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.addButton,
-                saving && styles.buttonDisabled,
+                saving && styles.btnDisabled,
                 pressed && !saving && { transform: [{ scale: 0.97 }] },
               ]}
-              onPress={handleAddEmployee}
+              onPress={handleAdd}
               disabled={saving}
             >
-              <Ionicons name="add-circle-outline" size={18} color="#FFF" style={{ marginRight: 6 }} />
-              <Text style={styles.addText}>
-                {saving ? "Añadiendo..." : "Añadir empleado"}
-              </Text>
+              {saving ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <>
+                  <Ionicons name="add-circle-outline" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.addText}>Añadir empleado</Text>
+                </>
+              )}
             </Pressable>
           </View>
 
-          {/* Employee list */}
-          <View style={styles.listSection}>
-            <Text style={styles.listTitle}>Plantilla</Text>
+          {/* Active employees */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Plantilla activa</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{active.length}</Text>
+              </View>
+            </View>
 
             {loading ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
-                <Text style={styles.loadingText}>Cargando empleados...</Text>
+              <View style={styles.list}>
+                <EmployeeRowSkeleton />
+                <EmployeeRowSkeleton />
+                <EmployeeRowSkeleton />
               </View>
-            ) : employees.length === 0 ? (
-              <View style={styles.emptyBox}>
+            ) : active.length === 0 ? (
+              <View style={styles.stateBox}>
                 <Ionicons name="people-outline" size={36} color={C.BORDER} />
-                <Text style={styles.emptyTitle}>Todavía no hay empleados</Text>
-                <Text style={styles.emptyText}>
-                  Añade el primero para empezar a organizar las propinas.
+                <Text style={styles.stateTitle}>Sin empleados activos</Text>
+                <Text style={styles.stateText}>
+                  Añade empleados para que los clientes puedan elegir a quién dar la propina.
                 </Text>
               </View>
             ) : (
               <View style={styles.list}>
-                {employees.map((employee) => (
-                  <View key={employee.id} style={styles.employee}>
-                    <View style={styles.employeeAvatar}>
-                      <Text style={styles.employeeAvatarText}>
-                        {getInitials(employee.name)}
-                      </Text>
-                    </View>
-                    <View style={styles.employeeBody}>
-                      <Text style={styles.name}>{employee.name}</Text>
-                      <Text style={styles.role}>{employee.role}</Text>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={() =>
-                        handleDeleteEmployee(employee.id, employee.name)
-                      }
-                      activeOpacity={0.85}
-                      style={styles.deleteButton}
-                    >
-                      <Ionicons name="trash-outline" size={16} color={C.ERROR} />
-                    </TouchableOpacity>
-                  </View>
+                {active.map((emp) => (
+                  <EmployeeRow
+                    key={emp.id}
+                    employee={emp}
+                    onDeactivate={() => handleDeactivate(emp)}
+                    onReactivate={undefined}
+                  />
                 ))}
               </View>
             )}
           </View>
+
+          {/* Inactive employees toggle */}
+          {inactive.length > 0 && (
+            <View style={styles.section}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.toggleRow,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => setShowInactive((v) => !v)}
+              >
+                <Text style={styles.toggleText}>
+                  Empleados desactivados ({inactive.length})
+                </Text>
+                <Ionicons
+                  name={showInactive ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={C.TEXT_TERTIARY}
+                />
+              </Pressable>
+
+              {showInactive && (
+                <View style={[styles.list, { marginTop: 12 }]}>
+                  {inactive.map((emp) => (
+                    <EmployeeRow
+                      key={emp.id}
+                      employee={emp}
+                      onDeactivate={undefined}
+                      onReactivate={() => handleReactivate(emp)}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: C.BG_SCREEN,
-  },
-  scrollContent: {
-    padding: 24,
-    alignItems: "center",
-  },
-  container: {
-    maxWidth: 520,
-    width: "100%",
-    alignSelf: "center",
-  },
-  backRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    marginBottom: 12,
-  },
-  back: {
-    color: C.VIOLET_PRIMARY,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  title: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 28,
-    fontWeight: "800",
-  },
-  subtitle: {
-    color: C.TEXT_SECONDARY,
-    marginTop: 6,
-    marginBottom: 20,
-    fontSize: 14,
-  },
+function EmployeeRow({
+  employee,
+  onDeactivate,
+  onReactivate,
+}: {
+  employee: Employee;
+  onDeactivate?: () => void;
+  onReactivate?: () => void;
+}) {
+  const isInactive = employee.status === "inactive";
+  return (
+    <View style={[styles.row, isInactive && styles.rowInactive]}>
+      <View style={[styles.avatar, isInactive && styles.avatarInactive]}>
+        <Text style={[styles.avatarText, isInactive && { color: C.TEXT_TERTIARY }]}>
+          {employee.name.trim().split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
+        </Text>
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={[styles.rowName, isInactive && { color: C.TEXT_TERTIARY }]}>
+          {employee.name}
+        </Text>
+        <Text style={styles.rowRole}>{employee.role}</Text>
+      </View>
+      {onDeactivate && (
+        <TouchableOpacity style={styles.actionBtn} onPress={onDeactivate} activeOpacity={0.8}>
+          <Ionicons name="pause-circle-outline" size={18} color={C.WARNING} />
+        </TouchableOpacity>
+      )}
+      {onReactivate && (
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: "rgba(32,214,155,0.1)", borderColor: C.GREEN_BORDER }]}
+          onPress={onReactivate}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="play-circle-outline" size={18} color={C.GREEN_POSITIVE} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
-  // Form card
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: C.BG_SCREEN },
+  scrollContent: { padding: 24, paddingBottom: 48, alignItems: "center" },
+  container: { maxWidth: 520, width: "100%", alignSelf: "center" },
+
+  backRow: { flexDirection: "row", alignItems: "center", gap: 2, marginBottom: 12 },
+  back: { color: C.VIOLET_PRIMARY, fontSize: 15, fontWeight: "600" },
+  title: { color: C.TEXT_PRIMARY, fontSize: 28, fontWeight: "800" },
+  subtitle: { color: C.TEXT_SECONDARY, marginTop: 6, marginBottom: 20, fontSize: 14, lineHeight: 20 },
+
   formCard: {
     backgroundColor: C.BG_CARD,
     borderRadius: RADIUS.lg,
     padding: 18,
-    marginBottom: 22,
+    marginBottom: 24,
     ...SHADOW.md,
     borderWidth: 1,
     borderColor: C.BORDER,
   },
-  formTitle: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 14,
-  },
+  formTitle: { color: C.TEXT_PRIMARY, fontSize: 16, fontWeight: "700", marginBottom: 14 },
+  fieldLabel: { color: C.TEXT_PRIMARY, fontSize: 13, fontWeight: "600", marginBottom: 6, marginTop: 4 },
+
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -337,53 +364,43 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: C.BORDER_INPUT,
   },
-  inputWrapperFocused: {
-    borderColor: C.VIOLET_PRIMARY,
-    backgroundColor: "#FAFBFF",
-  },
-  inputIcon: {
-    paddingLeft: 12,
-    paddingRight: 6,
-  },
-  input: {
-    flex: 1,
-    color: C.TEXT_PRIMARY,
-    padding: 14,
-    fontSize: 15,
-  },
+  inputFocused: { borderColor: C.VIOLET_PRIMARY, backgroundColor: "#FAFBFF" },
+  inputIcon: { paddingLeft: 12, paddingRight: 6 },
+  input: { flex: 1, color: C.TEXT_PRIMARY, padding: 14, fontSize: 15 },
+
   addButton: {
     marginTop: 6,
     backgroundColor: C.VIOLET_PRIMARY,
     borderRadius: RADIUS.sm,
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
     ...SHADOW.violetSm,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  addText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
+  btnDisabled: { opacity: 0.55 },
+  addText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
 
-  // List section
-  listSection: {
-    marginTop: 4,
-  },
-  listTitle: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 18,
-    fontWeight: "800",
+  section: { marginBottom: 20 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     marginBottom: 14,
   },
-  list: {
-    gap: 10,
+  sectionTitle: { color: C.TEXT_PRIMARY, fontSize: 18, fontWeight: "800" },
+  countBadge: {
+    backgroundColor: C.VIOLET_SUBTLE,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: C.VIOLET_BORDER,
   },
-  employee: {
+  countText: { color: C.VIOLET_PRIMARY, fontSize: 13, fontWeight: "700" },
+
+  list: { gap: 10 },
+  row: {
     backgroundColor: C.BG_CARD,
     borderRadius: RADIUS.md,
     padding: 14,
@@ -394,7 +411,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.BORDER,
   },
-  employeeAvatar: {
+  rowInactive: { opacity: 0.65, backgroundColor: C.BG_INPUT },
+  avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -404,46 +422,32 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: C.VIOLET_BORDER,
   },
-  employeeAvatarText: {
-    color: C.VIOLET_PRIMARY,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  employeeBody: {
-    flex: 1,
-  },
-  name: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  role: {
-    color: C.TEXT_TERTIARY,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  deleteButton: {
+  avatarInactive: { backgroundColor: C.BG_INPUT, borderColor: C.BORDER },
+  avatarText: { color: C.VIOLET_PRIMARY, fontSize: 13, fontWeight: "800" },
+  rowBody: { flex: 1 },
+  rowName: { color: C.TEXT_PRIMARY, fontSize: 15, fontWeight: "700" },
+  rowRole: { color: C.TEXT_TERTIARY, fontSize: 12, marginTop: 2 },
+  actionBtn: {
     width: 36,
     height: 36,
     borderRadius: RADIUS.xs,
-    backgroundColor: C.ERROR_SUBTLE,
+    backgroundColor: "#FFF3E0",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#FECDD3",
+    borderColor: "#FDE68A",
   },
 
-  // States
-  loadingBox: {
-    paddingVertical: 40,
+  toggleRow: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    paddingHorizontal: 4,
   },
-  loadingText: {
-    color: C.TEXT_TERTIARY,
-    fontSize: 13,
-  },
-  emptyBox: {
+  toggleText: { color: C.TEXT_SECONDARY, fontSize: 14, fontWeight: "600" },
+
+  stateBox: {
     backgroundColor: C.BG_CARD,
     borderRadius: RADIUS.md,
     padding: 28,
@@ -453,16 +457,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.BORDER,
   },
-  emptyTitle: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 8,
-  },
-  emptyText: {
+  stateTitle: { color: C.TEXT_PRIMARY, fontSize: 15, fontWeight: "700", marginTop: 8 },
+  stateText: {
     color: C.TEXT_SECONDARY,
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
+    maxWidth: 280,
   },
 });

@@ -14,8 +14,8 @@ import {
   View,
 } from "react-native";
 import { C, RADIUS, SHADOW } from "../../constants/theme";
+import { FUNCTIONS_URL } from "../../lib/functions";
 
-const FUNCTIONS_URL = "https://europe-west1-qtips-edcc2.cloudfunctions.net";
 const PRESET_AMOUNTS = [1, 2, 3, 5];
 
 type Restaurant = {
@@ -55,10 +55,10 @@ export default function TipPage() {
     }
 
     fetch(`${FUNCTIONS_URL}/getRestaurant?restaurantId=${encodeURIComponent(restaurantId)}`)
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<{ error?: string; restaurant?: Restaurant; employees?: Employee[] }>)
       .then((data) => {
         if (data.error) { setError(data.error); return; }
-        setRestaurant(data.restaurant);
+        if (data.restaurant) setRestaurant(data.restaurant);
         setEmployees(data.employees ?? []);
       })
       .catch(() => setError("No se pudo cargar la información del restaurante"))
@@ -69,7 +69,11 @@ export default function TipPage() {
     ? parseFloat(customAmount.replace(",", ".")) || 0
     : selectedAmount ?? 0;
 
-  const canPay = finalAmount >= 0.5 && finalAmount <= 500;
+  const employeeRequired =
+    restaurant?.tipDistributionMode === "employee_required" && employees.length > 0;
+  const employeeOk = !employeeRequired || selectedEmployee !== null;
+
+  const canPay = finalAmount >= 0.5 && finalAmount <= 500 && employeeOk;
 
   const handlePay = async () => {
     if (!restaurant?.canReceiveTips) {
@@ -93,12 +97,12 @@ export default function TipPage() {
           employeeName: selectedEmployee?.name ?? "",
         }),
       });
-      const data = await response.json();
+      const data = await response.json() as { url?: string; error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? "Error al iniciar el pago");
       if (Platform.OS === "web") {
-        window.location.href = data.url;
+        window.location.href = data.url as string;
       } else {
-        await Linking.openURL(data.url);
+        await Linking.openURL(data.url as string);
       }
     } catch (err: unknown) {
       const e = err as Error;
@@ -315,7 +319,11 @@ export default function TipPage() {
           <>
             <Ionicons name="card-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
             <Text style={styles.payBtnText}>
-              {canPay ? `Pagar ${finalAmount.toFixed(2)} €` : "Selecciona un importe"}
+              {!employeeOk
+                ? "Elige a quién va la propina"
+                : canPay
+                ? `Pagar ${finalAmount.toFixed(2)} €`
+                : "Selecciona un importe"}
             </Text>
           </>
         )}

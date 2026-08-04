@@ -5,6 +5,7 @@
     "esModuleInterop": true,
     "jsx": "react-native",
     "lib": [
+      "DOM",
       "ESNext"
     ],
     "moduleResolution": "bundler",

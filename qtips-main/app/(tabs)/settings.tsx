@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { sendPasswordResetEmail, signOut } from "firebase/auth";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { onAuthStateChanged, sendPasswordResetEmail, signOut, type User } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { C, RADIUS, SHADOW } from "../../constants/theme";
 import { auth } from "../../lib/firebase";
-import { C, SHADOW, RADIUS } from "../../constants/theme";
 
 type OptionItem = {
   label: string;
@@ -13,38 +15,63 @@ type OptionItem = {
   danger?: boolean;
 };
 
+function getInitials(email: string): string {
+  return email.slice(0, 2).toUpperCase();
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.replace("/login");
-    } catch (error) {
-      console.error("Error al cerrar sesión:", error);
-      Alert.alert("Error", "No se pudo cerrar sesión");
-    }
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, setUser);
+    return unsub;
+  }, []);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+
+  const handleLogout = () => {
+    Alert.alert(
+      "Cerrar sesión",
+      "¿Seguro que quieres salir de tu cuenta?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Cerrar sesión",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              router.replace("/login");
+            } catch {
+              Alert.alert("Error", "No se pudo cerrar sesión");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleChangePassword = async () => {
-    const user = auth.currentUser;
-
-    if (!user?.email) {
+    const email = auth.currentUser?.email;
+    if (!email) {
       Alert.alert("Error", "No se encontró el email del usuario");
       return;
     }
-
     try {
-      await sendPasswordResetEmail(auth, user.email);
+      await sendPasswordResetEmail(auth, email);
       Alert.alert(
         "Email enviado",
-        `Hemos enviado un enlace a ${user.email} para restablecer tu contraseña.`
+        `Hemos enviado un enlace a ${email} para restablecer tu contraseña.`
       );
-    } catch (error) {
-      console.error("Error al enviar email:", error);
+    } catch {
       Alert.alert("Error", "No se pudo enviar el email. Inténtalo de nuevo.");
     }
   };
+
+  // ── Option groups ──────────────────────────────────────────────────────────
 
   const restaurantOptions: OptionItem[] = [
     {
@@ -55,7 +82,7 @@ export default function SettingsScreen() {
     },
     {
       label: "Empleados",
-      hint: "Añadir o eliminar empleados",
+      hint: "Añadir o desactivar empleados",
       icon: "people-outline",
       onPress: () => router.push("/settings/employees"),
     },
@@ -63,10 +90,16 @@ export default function SettingsScreen() {
 
   const paymentOptions: OptionItem[] = [
     {
-      label: "Cuenta bancaria",
-      hint: "Dónde recibir las propinas",
+      label: "Cuenta de cobros",
+      hint: "Conecta con Stripe para recibir propinas",
       icon: "card-outline",
       onPress: () => router.push("/settings/bank"),
+    },
+    {
+      label: "Configuración de propinas",
+      hint: "Cómo se atribuyen las propinas",
+      icon: "options-outline",
+      onPress: () => router.push("/settings/tip-config"),
     },
   ];
 
@@ -79,11 +112,14 @@ export default function SettingsScreen() {
     },
   ];
 
-  const renderOption = (item: OptionItem) => (
+  // ── Render option ──────────────────────────────────────────────────────────
+
+  const renderOption = (item: OptionItem, isLast: boolean) => (
     <Pressable
       key={item.label}
       style={({ pressed }) => [
         styles.option,
+        isLast && styles.optionLast,
         item.danger && styles.optionDanger,
         pressed && { opacity: 0.75, transform: [{ scale: 0.99 }] },
       ]}
@@ -110,35 +146,63 @@ export default function SettingsScreen() {
     </Pressable>
   );
 
-  return (
-    <View style={styles.screen}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Ajustes</Text>
-        <Text style={styles.subtitle}>
-          Configura tu restaurante y gestiona tu cuenta
-        </Text>
+  const topPad = insets.top > 0 ? insets.top + 8 : 0;
 
+  return (
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.scrollContent, { paddingTop: topPad + 28 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.container}>
+
+        {/* ── Profile header ──────────────────────────────────────────────── */}
+        {user && (
+          <View style={styles.profileCard}>
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>
+                {getInitials(user.email ?? "QT")}
+              </Text>
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileEmail} numberOfLines={1}>{user.email}</Text>
+              <View style={styles.profileBadge}>
+                <View style={styles.profileDot} />
+                <Text style={styles.profileBadgeText}>Cuenta activa</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Restaurante ─────────────────────────────────────────────────── */}
         <Text style={styles.sectionLabel}>RESTAURANTE</Text>
         <View style={styles.group}>
-          {restaurantOptions.map(renderOption)}
+          {restaurantOptions.map((item, i) =>
+            renderOption(item, i === restaurantOptions.length - 1)
+          )}
         </View>
 
+        {/* ── Pagos ───────────────────────────────────────────────────────── */}
         <Text style={styles.sectionLabel}>PAGOS</Text>
         <View style={styles.group}>
-          {paymentOptions.map(renderOption)}
+          {paymentOptions.map((item, i) =>
+            renderOption(item, i === paymentOptions.length - 1)
+          )}
         </View>
 
+        {/* ── Cuenta ──────────────────────────────────────────────────────── */}
         <Text style={styles.sectionLabel}>CUENTA</Text>
         <View style={styles.group}>
-          {accountOptions.map(renderOption)}
+          {accountOptions.map((item, i) =>
+            renderOption(item, i === accountOptions.length - 1)
+          )}
         </View>
 
+        {/* ── Logout ──────────────────────────────────────────────────────── */}
         <Pressable
           style={({ pressed }) => [
-            styles.option,
-            styles.optionDanger,
-            pressed && { opacity: 0.75 },
-            { marginTop: 12 },
+            styles.logoutBtn,
+            pressed && { opacity: 0.75, transform: [{ scale: 0.99 }] },
           ]}
           onPress={handleLogout}
         >
@@ -150,35 +214,47 @@ export default function SettingsScreen() {
           </View>
         </Pressable>
 
-        <Text style={styles.footer}>QTips · Versión MVP</Text>
+        <Text style={styles.footer}>QTips · v1.0 MVP</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: C.BG_SCREEN,
+  screen: { flex: 1, backgroundColor: C.BG_SCREEN },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 48, alignItems: "center" },
+  container: { maxWidth: 520, width: "100%" },
+
+  // Profile
+  profileCard: {
+    backgroundColor: C.BG_CARD,
+    borderRadius: RADIUS.lg,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 24,
+    ...SHADOW.sm,
+    borderWidth: 1,
+    borderColor: C.BORDER,
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: C.VIOLET_PRIMARY,
+    alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  container: {
-    padding: 24,
-    maxWidth: 520,
-    width: "100%",
-    alignSelf: "center",
-  },
-  title: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 28,
-    fontWeight: "800",
-  },
-  subtitle: {
-    color: C.TEXT_SECONDARY,
-    marginTop: 6,
-    marginBottom: 28,
-    fontSize: 14,
-  },
+  profileAvatarText: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
+  profileInfo: { flex: 1, gap: 4 },
+  profileEmail: { color: C.TEXT_PRIMARY, fontSize: 14, fontWeight: "700" },
+  profileBadge: { flexDirection: "row", alignItems: "center", gap: 5 },
+  profileDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.GREEN_POSITIVE },
+  profileBadgeText: { color: C.TEXT_TERTIARY, fontSize: 12, fontWeight: "500" },
+
+  // Section label
   sectionLabel: {
     color: C.TEXT_TERTIARY,
     fontSize: 11,
@@ -186,7 +262,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 10,
     marginTop: 24,
+    marginLeft: 4,
   },
+
+  // Option group
   group: {
     borderRadius: RADIUS.lg,
     overflow: "hidden",
@@ -197,7 +276,7 @@ const styles = StyleSheet.create({
   },
   option: {
     backgroundColor: C.BG_CARD,
-    paddingVertical: 16,
+    paddingVertical: 15,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -205,6 +284,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.BORDER,
   },
+  optionLast: { borderBottomWidth: 0 },
   optionDanger: {
     backgroundColor: C.ERROR_SUBTLE,
     borderRadius: RADIUS.lg,
@@ -219,6 +299,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.VIOLET_SUBTLE,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   optionIconDanger: {
     width: 36,
@@ -227,25 +308,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEE2E2",
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  optionBody: {
-    flex: 1,
+  optionBody: { flex: 1 },
+  optionText: { color: C.TEXT_PRIMARY, fontSize: 15, fontWeight: "600" },
+  optionTextDanger: { color: C.ERROR, fontWeight: "700", fontSize: 15 },
+  optionHint: { color: C.TEXT_TERTIARY, fontSize: 12, marginTop: 2 },
+
+  // Logout button (standalone)
+  logoutBtn: {
+    marginTop: 16,
+    backgroundColor: C.ERROR_SUBTLE,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: "#FECDD3",
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
-  optionText: {
-    color: C.TEXT_PRIMARY,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  optionTextDanger: {
-    color: C.ERROR,
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  optionHint: {
-    color: C.TEXT_TERTIARY,
-    fontSize: 12,
-    marginTop: 2,
-  },
+
   footer: {
     color: C.TEXT_TERTIARY,
     textAlign: "center",

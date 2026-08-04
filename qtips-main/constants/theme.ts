@@ -127,6 +127,36 @@ export const Colors = {
   },
 };
 
+// ─── Spacing scale ───────────────────────────────────────────────────────────
+
+export const S = {
+  xs:   4,
+  sm:   8,
+  md:   12,
+  lg:   16,
+  xl:   20,
+  '2xl': 24,
+  '3xl': 32,
+  '4xl': 40,
+  '5xl': 48,
+} as const;
+
+// ─── Common sizes ─────────────────────────────────────────────────────────────
+
+export const SIZE = {
+  tabBar:         60,
+  tabBarIcon:     24,
+  buttonHeight:   52,
+  buttonHeightSm: 44,
+  inputHeight:    52,
+  avatarSm:       32,
+  avatarMd:       44,
+  avatarLg:       56,
+  iconSm:         16,
+  iconMd:         20,
+  iconLg:         24,
+} as const;
+
 export const Fonts = Platform.select({
   ios: {
     sans: 'system-ui',

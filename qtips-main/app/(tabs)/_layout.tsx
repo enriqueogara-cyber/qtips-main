@@ -1,7 +1,38 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { C } from "../../constants/theme";
+
+type TabIconProps = {
+  name: keyof typeof Ionicons.glyphMap;
+  focusedName: keyof typeof Ionicons.glyphMap;
+  size?: number;
+  color: string;
+  focused: boolean;
+};
+
+function TabIcon({ name, focusedName, size = 23, color, focused }: TabIconProps) {
+  return (
+    <View
+      style={{
+        backgroundColor: focused ? C.VIOLET_SUBTLE : "transparent",
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: 44,
+      }}
+    >
+      <Ionicons name={focused ? focusedName : name} size={size} color={color} />
+    </View>
+  );
+}
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -10,20 +41,21 @@ export default function TabsLayout() {
           backgroundColor: "#FFFFFF",
           borderTopColor: "#E7E9F0",
           borderTopWidth: 1,
-          height: 64,
-          paddingBottom: 10,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom + 6,
           paddingTop: 6,
-          elevation: 16,
+          elevation: 20,
           shadowColor: "#6D4AFF",
-          shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: 0.07,
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.08,
           shadowRadius: 16,
         },
-        tabBarActiveTintColor: "#6D4AFF",
-        tabBarInactiveTintColor: "#94A3B8",
+        tabBarActiveTintColor: C.VIOLET_PRIMARY,
+        tabBarInactiveTintColor: C.TEXT_TERTIARY,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: "600",
+          marginTop: 1,
         },
       }}
     >
@@ -32,11 +64,7 @@ export default function TabsLayout() {
         options={{
           title: "Inicio",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              size={22}
-              color={color}
-            />
+            <TabIcon name="home-outline" focusedName="home" color={color} focused={focused} />
           ),
         }}
       />
@@ -44,13 +72,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="movements"
         options={{
-          title: "Movimientos",
+          title: "Pagos",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "receipt" : "receipt-outline"}
-              size={22}
-              color={color}
-            />
+            <TabIcon name="receipt-outline" focusedName="receipt" color={color} focused={focused} />
           ),
         }}
       />
@@ -60,11 +84,17 @@ export default function TabsLayout() {
         options={{
           title: "QR",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "qr-code" : "qr-code-outline"}
-              size={24}
-              color={color}
-            />
+            <TabIcon name="qr-code-outline" focusedName="qr-code" size={24} color={color} focused={focused} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: "Stats",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="bar-chart-outline" focusedName="bar-chart" color={color} focused={focused} />
           ),
         }}
       />
@@ -74,22 +104,18 @@ export default function TabsLayout() {
         options={{
           title: "Ajustes",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "settings" : "settings-outline"}
-              size={22}
-              color={color}
-            />
+            <TabIcon name="settings-outline" focusedName="settings" color={color} focused={focused} />
           ),
         }}
       />
 
-      {/* Hidden tabs */}
-      <Tabs.Screen name="index" options={{ href: null }} />
-      <Tabs.Screen name="login" options={{ href: null }} />
-      <Tabs.Screen name="stats" options={{ href: null }} />
-      <Tabs.Screen name="explore" options={{ href: null }} />
-      <Tabs.Screen name="settings/bank" options={{ href: null }} />
+      {/* Hidden tabs — not in navigation bar */}
+      <Tabs.Screen name="index"              options={{ href: null }} />
+      <Tabs.Screen name="login"              options={{ href: null }} />
+      <Tabs.Screen name="explore"            options={{ href: null }} />
+      <Tabs.Screen name="settings/bank"      options={{ href: null }} />
       <Tabs.Screen name="settings/employees" options={{ href: null }} />
+      <Tabs.Screen name="settings/tip-config" options={{ href: null }} />
     </Tabs>
   );
 }

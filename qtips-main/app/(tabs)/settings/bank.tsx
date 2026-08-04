@@ -13,9 +13,8 @@ import {
   View,
 } from "react-native";
 import { auth, db } from "../../../lib/firebase";
+import { FUNCTIONS_URL } from "../../../lib/functions";
 import { C, RADIUS, SHADOW } from "../../../constants/theme";
-
-const FUNCTIONS_URL = "https://europe-west1-qtips-edcc2.cloudfunctions.net";
 
 type StripeStatus =
   | "not_connected"
@@ -45,7 +44,7 @@ async function callConnectLink(token: string): Promise<string> {
       "Content-Type": "application/json",
     },
   });
-  const data = await res.json();
+  const data = await res.json() as { url?: string; error?: string };
   if (!res.ok || data.error) throw new Error(data.error ?? "Error generando enlace");
   return data.url as string;
 }

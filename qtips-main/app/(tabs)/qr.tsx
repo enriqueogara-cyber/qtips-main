@@ -1,47 +1,101 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Toast } from "../../components/ui/Toast";
+import { C, RADIUS, SHADOW } from "../../constants/theme";
+import { useToast } from "../../hooks/use-toast";
 import { auth } from "../../lib/firebase";
-import { C, SHADOW, RADIUS } from "../../constants/theme";
+
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+function QRSkeleton() {
+  return (
+    <View style={styles.skeletonWrap}>
+      <View style={styles.skeletonBox} />
+      <ActivityIndicator size="small" color={C.VIOLET_PRIMARY} style={{ marginTop: 16 }} />
+      <Text style={styles.skeletonText}>Preparando tu QR…</Text>
+    </View>
+  );
+}
+
+// ─── Action button ────────────────────────────────────────────────────────────
+
+function ActionBtn({
+  icon,
+  label,
+  onPress,
+  primary = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        primary ? styles.primaryBtn : styles.secondaryBtn,
+        pressed && { opacity: 0.8, transform: [{ scale: 0.97 }] },
+      ]}
+      onPress={onPress}
+    >
+      <Ionicons
+        name={icon}
+        size={18}
+        color={primary ? "#FFF" : C.VIOLET_PRIMARY}
+        style={{ marginRight: 8 }}
+      />
+      <Text style={primary ? styles.primaryBtnText : styles.secondaryBtnText}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function QRScreen() {
-  const router = useRouter();
-  const svgRef = useRef<any>(null);
+  const svgRef = useRef<unknown>(null);
+  const insets = useSafeAreaInsets();
 
   const [user, setUser] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  const { toast, show: showToast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoadingUser(false);
     });
-
     return unsubscribe;
   }, []);
 
   const restaurantId = user?.uid ?? "";
-  const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? "https://qtips-main.vercel.app";
+  const APP_URL =
+    process.env.EXPO_PUBLIC_APP_URL ?? "https://qtips-main.vercel.app";
   const qrValue = `${APP_URL}/tip/${restaurantId}`;
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
 
   const handleShare = async () => {
     if (!restaurantId) {
       Alert.alert("Error", "No hay restaurante autenticado");
       return;
     }
-
     try {
       await Share.share({
         message: `Deja propina con QTips: ${qrValue}`,
@@ -52,146 +106,192 @@ export default function QRScreen() {
     }
   };
 
-  const handleDownload = () => {
-    Alert.alert(
-      "Descargar QR",
-      "Mantén pulsado el QR para guardarlo, o usa Compartir para enviarlo a tus dispositivos."
-    );
+  const handleCopyLink = async () => {
+    if (!restaurantId) return;
+    if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(qrValue);
+        showToast("Enlace copiado al portapapeles", "success");
+      } catch {
+        showToast("No se pudo copiar el enlace", "error");
+      }
+    } else {
+      Alert.alert("Enlace de tu restaurante", qrValue, [
+        { text: "Cerrar", style: "cancel" },
+      ]);
+    }
   };
 
-  const handlePrint = () => {
-    Alert.alert(
-      "Imprimir",
-      "Comparte el QR con tu email o servicio de impresión desde el botón Compartir."
-    );
+  const handleDownload = () => {
+    showToast("Mantén pulsado el QR para guardarlo", "info");
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loadingUser) {
     return (
-      <View style={[styles.screen, { justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
-        <Text style={styles.subtitle}>Cargando sesión...</Text>
+      <View style={[styles.screen, { paddingTop: insets.top + 20 }]}>
+        <QRSkeleton />
       </View>
     );
   }
 
   if (!user) {
     return (
-      <View style={styles.screen}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={18} color={C.VIOLET_PRIMARY} />
-          <Text style={styles.backText}>Volver</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.title}>Código QR</Text>
-        <Text style={styles.subtitle}>No hay un usuario autenticado ahora mismo</Text>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.primaryButton,
-            pressed && { transform: [{ scale: 0.97 }] },
-          ]}
-          onPress={() => router.replace("/login")}
-        >
-          <Text style={styles.primaryButtonText}>Ir al login</Text>
-        </Pressable>
+      <View style={[styles.screen, styles.center, { paddingTop: insets.top + 20 }]}>
+        <Ionicons name="lock-closed-outline" size={44} color={C.BORDER} />
+        <Text style={styles.emptyTitle}>No hay sesión activa</Text>
+        <Text style={styles.emptyText}>Inicia sesión para ver tu código QR.</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-        <Ionicons name="chevron-back" size={18} color={C.VIOLET_PRIMARY} />
-        <Text style={styles.backText}>Volver</Text>
-      </TouchableOpacity>
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* Toast overlay */}
+      <Toast message={toast} />
 
-      <Text style={styles.title}>Código QR del restaurante</Text>
-      <Text style={styles.subtitle}>
-        Los clientes escanean este QR y dejan propina desde su móvil
-      </Text>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.container}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerBadge}>
+              <View style={styles.dotOnline} />
+              <Text style={styles.headerBadgeText}>Listo para recibir propinas</Text>
+            </View>
+            <Text style={styles.title}>Código QR</Text>
+            <Text style={styles.subtitle}>
+              Los clientes escanean este código desde su móvil y dejan propina en segundos
+            </Text>
+          </View>
 
-      {/* QR container */}
-      <View style={styles.qrWrapper}>
-        <View style={styles.qrBox}>
-          <QRCode
-            value={qrValue}
-            size={170}
-            getRef={(ref) => { svgRef.current = ref; }}
-          />
+          {/* QR card */}
+          <View style={styles.qrCard}>
+            {/* Corner decorations */}
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
+
+            <View style={styles.qrInner}>
+              <QRCode
+                value={qrValue}
+                size={180}
+                getRef={(ref: unknown) => {
+                  svgRef.current = ref;
+                }}
+                backgroundColor="#FFFFFF"
+                color="#111827"
+              />
+            </View>
+
+            {/* Branding strip */}
+            <View style={styles.brandStrip}>
+              <View style={styles.brandDot} />
+              <Text style={styles.brandText}>QTips</Text>
+            </View>
+          </View>
+
+          {/* URL row */}
+          <Pressable
+            style={({ pressed }) => [styles.urlRow, pressed && { opacity: 0.7 }]}
+            onPress={handleCopyLink}
+          >
+            <Text style={styles.urlText} numberOfLines={1}>
+              {qrValue}
+            </Text>
+            <Ionicons name="copy-outline" size={14} color={C.VIOLET_PRIMARY} style={{ marginLeft: 6, flexShrink: 0 }} />
+          </Pressable>
+
+          {/* Actions */}
+          <View style={styles.actions}>
+            <ActionBtn
+              icon="share-social-outline"
+              label="Compartir QR"
+              onPress={handleShare}
+              primary
+            />
+            <ActionBtn
+              icon="link-outline"
+              label="Copiar enlace"
+              onPress={handleCopyLink}
+            />
+            <ActionBtn
+              icon="download-outline"
+              label="Guardar imagen"
+              onPress={handleDownload}
+            />
+          </View>
+
+          {/* Tip */}
+          <View style={styles.tipBox}>
+            <Ionicons name="bulb-outline" size={15} color={C.VIOLET_LIGHT} />
+            <Text style={styles.tipText}>
+              Imprime el QR o muéstralo en pantalla. Los clientes no necesitan instalar ninguna app.
+            </Text>
+          </View>
         </View>
-        {/* Corner decorations */}
-        <View style={[styles.corner, styles.cornerTL]} />
-        <View style={[styles.corner, styles.cornerTR]} />
-        <View style={[styles.corner, styles.cornerBL]} />
-        <View style={[styles.corner, styles.cornerBR]} />
-      </View>
-
-      <Text style={styles.urlText}>{qrValue}</Text>
-
-      {/* Primary button */}
-      <Pressable
-        style={({ pressed }) => [
-          styles.primaryButton,
-          pressed && { transform: [{ scale: 0.97 }] },
-        ]}
-        onPress={handleShare}
-      >
-        <Ionicons name="share-social-outline" size={18} color="#FFF" style={{ marginRight: 8 }} />
-        <Text style={styles.primaryButtonText}>Compartir QR</Text>
-      </Pressable>
-
-      {/* Secondary buttons */}
-      <Pressable
-        style={({ pressed }) => [
-          styles.secondaryButton,
-          pressed && { opacity: 0.7 },
-        ]}
-        onPress={handleDownload}
-      >
-        <Ionicons name="download-outline" size={17} color={C.TEXT_SECONDARY} style={{ marginRight: 6 }} />
-        <Text style={styles.secondaryButtonText}>Descargar para imprimir</Text>
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [
-          styles.secondaryButton,
-          pressed && { opacity: 0.7 },
-        ]}
-        onPress={handlePrint}
-      >
-        <Ionicons name="print-outline" size={17} color={C.TEXT_SECONDARY} style={{ marginRight: 6 }} />
-        <Text style={styles.secondaryButtonText}>Imprimir</Text>
-      </Pressable>
+      </ScrollView>
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: C.BG_SCREEN,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 48,
     alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 60,
+  },
+  container: {
+    width: "100%",
+    maxWidth: 440,
+    alignItems: "center",
+  },
+  center: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    gap: 10,
+    paddingHorizontal: 32,
   },
 
-  back: {
-    alignSelf: "flex-start",
-    marginBottom: 20,
+  // Header
+  header: { alignItems: "center", marginBottom: 28 },
+  headerBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: 6,
+    backgroundColor: C.GREEN_SUBTLE,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: C.GREEN_BORDER,
+    marginBottom: 14,
   },
-  backText: {
-    color: C.VIOLET_PRIMARY,
-    fontSize: 16,
-    fontWeight: "600",
+  dotOnline: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.GREEN_POSITIVE,
   },
-
+  headerBadgeText: {
+    color: "#059669",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   title: {
     color: C.TEXT_PRIMARY,
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "800",
     marginBottom: 6,
     textAlign: "center",
@@ -200,89 +300,142 @@ const styles = StyleSheet.create({
     color: C.TEXT_SECONDARY,
     fontSize: 14,
     textAlign: "center",
-    marginTop: 8,
-    marginBottom: 28,
-    maxWidth: 300,
     lineHeight: 20,
+    maxWidth: 300,
   },
 
-  // QR
-  qrWrapper: {
-    marginBottom: 20,
+  // QR card
+  qrCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: RADIUS.xl,
+    padding: 28,
     alignItems: "center",
     position: "relative",
-  },
-  qrBox: {
-    width: 230,
-    height: 230,
-    borderRadius: RADIUS.xl,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: C.VIOLET_BORDER,
-    padding: 14,
-    shadowColor: C.VIOLET_PRIMARY,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
+    ...SHADOW.violet,
+    marginBottom: 12,
+    width: "100%",
+    maxWidth: 300,
   },
+  qrInner: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+  },
+  brandStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 16,
+  },
+  brandDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.VIOLET_PRIMARY,
+  },
+  brandText: {
+    color: C.VIOLET_PRIMARY,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+
+  // Corners
   corner: {
     position: "absolute",
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     borderColor: C.VIOLET_PRIMARY,
     borderWidth: 3,
   },
-  cornerTL: { top: -3, left: -3, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 6 },
-  cornerTR: { top: -3, right: -3, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 6 },
-  cornerBL: { bottom: -3, left: -3, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 6 },
-  cornerBR: { bottom: -3, right: -3, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 6 },
+  cornerTL: { top: -1, left: -1, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 8 },
+  cornerTR: { top: -1, right: -1, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 8 },
+  cornerBL: { bottom: -1, left: -1, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 8 },
+  cornerBR: { bottom: -1, right: -1, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 8 },
 
+  // URL
+  urlRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.VIOLET_SUBTLE,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 24,
+    width: "100%",
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: C.VIOLET_BORDER,
+  },
   urlText: {
+    flex: 1,
     color: C.VIOLET_LIGHT,
     fontSize: 11,
-    textAlign: "center",
-    marginBottom: 24,
-    maxWidth: 320,
+    fontFamily: "monospace",
   },
 
-  primaryButton: {
-    width: "100%",
-    maxWidth: 320,
+  // Buttons
+  actions: { gap: 10, width: "100%", maxWidth: 300 },
+  primaryBtn: {
     backgroundColor: C.VIOLET_PRIMARY,
-    paddingVertical: 18,
     borderRadius: RADIUS.md,
-    alignItems: "center",
-    marginBottom: 12,
-    flexDirection: "row",
-    justifyContent: "center",
-    ...SHADOW.violet,
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  secondaryButton: {
-    width: "100%",
-    maxWidth: 320,
-    backgroundColor: C.BG_CARD,
     paddingVertical: 16,
-    borderRadius: RADIUS.md,
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: C.BORDER,
-    marginBottom: 10,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
+    ...SHADOW.violetSm,
+  },
+  primaryBtnText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  secondaryBtn: {
+    backgroundColor: C.BG_CARD,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: C.VIOLET_BORDER,
     ...SHADOW.sm,
   },
-  secondaryButtonText: {
-    color: C.TEXT_SECONDARY,
-    fontSize: 15,
-    fontWeight: "600",
+  secondaryBtnText: { color: C.VIOLET_PRIMARY, fontSize: 14, fontWeight: "700" },
+
+  // Tip
+  tipBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 20,
+    backgroundColor: C.VIOLET_SUBTLE,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    width: "100%",
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: C.VIOLET_BORDER,
   },
+  tipText: {
+    flex: 1,
+    color: C.VIOLET_LIGHT,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  // Skeleton
+  skeletonWrap: { alignItems: "center", paddingTop: 60 },
+  skeletonBox: {
+    width: 230,
+    height: 230,
+    borderRadius: RADIUS.xl,
+    backgroundColor: C.BG_CARD,
+    borderWidth: 1.5,
+    borderColor: C.BORDER,
+  },
+  skeletonText: { color: C.TEXT_TERTIARY, fontSize: 13, marginTop: 8 },
+
+  // Empty
+  emptyTitle: { color: C.TEXT_PRIMARY, fontSize: 17, fontWeight: "700", textAlign: "center" },
+  emptyText: { color: C.TEXT_SECONDARY, fontSize: 13, textAlign: "center", lineHeight: 20 },
 });
