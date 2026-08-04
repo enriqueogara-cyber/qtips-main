@@ -1,109 +1,132 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { auth, db } from "../../../lib/firebase";
-import { C, SHADOW, RADIUS } from "../../../constants/theme";
+import { C, RADIUS, SHADOW } from "../../../constants/theme";
 
-function formatIban(raw: string): string {
-  const clean = raw.replace(/\s/g, "").toUpperCase();
-  return clean.match(/.{1,4}/g)?.join(" ") ?? clean;
+const FUNCTIONS_URL = "https://europe-west1-qtips-edcc2.cloudfunctions.net";
+
+type StripeStatus =
+  | "not_connected"
+  | "pending"
+  | "action_required"
+  | "review"
+  | "charges_only"
+  | "active"
+  | "restricted";
+
+type RestaurantStripeData = {
+  stripe_account_id?: string;
+  stripe_account_status?: string;
+  stripe_charges_enabled?: boolean;
+  stripe_payouts_enabled?: boolean;
+  stripe_details_submitted?: boolean;
+  stripe_onboarding_complete?: boolean;
+  stripe_requirements_due?: string[];
+  stripe_last_synced_at?: { toDate?: () => Date } | null;
+};
+
+async function callConnectLink(token: string): Promise<string> {
+  const res = await fetch(`${FUNCTIONS_URL}/createConnectOnboardingLink`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error ?? "Error generando enlace");
+  return data.url as string;
 }
 
-function isValidIban(iban: string): boolean {
-  const clean = iban.replace(/\s/g, "");
-  return /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(clean);
+async function callSyncAccount(token: string): Promise<void> {
+  await fetch(`${FUNCTIONS_URL}/syncStripeAccount`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function deriveStatus(data: RestaurantStripeData): StripeStatus {
+  if (!data.stripe_account_id) return "not_connected";
+  const s = (data.stripe_account_status ?? "pending") as StripeStatus;
+  return s;
+}
+
+function formatSyncDate(ts: { toDate?: () => Date } | null | undefined): string {
+  if (!ts?.toDate) return "";
+  return ts.toDate().toLocaleDateString("es-ES", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 export default function BankScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ connected?: string; refresh?: string }>();
 
-  const [holder, setHolder] = useState("");
-  const [iban, setIban] = useState("");
+  const [stripeData, setStripeData] = useState<RestaurantStripeData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [holderFocused, setHolderFocused] = useState(false);
-  const [ibanFocused, setIbanFocused] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
+  // Listen to restaurant document for real-time Stripe status
   useEffect(() => {
-    const loadBankInfo = async () => {
-      const user = auth.currentUser;
-      if (!user) { setLoading(false); return; }
+    const user = auth.currentUser;
+    if (!user) { setLoading(false); return; }
 
-      try {
-        const snap = await getDoc(doc(db, "restaurants", user.uid));
-        if (snap.exists()) {
-          const d = snap.data();
-          setHolder(d.bankHolder ?? "");
-          setIban(d.bankIban ? formatIban(d.bankIban) : "");
-          if (d.bankHolder || d.bankIban) setSaved(true);
-        }
-      } catch {
-        Alert.alert("Error", "No se pudo cargar la cuenta bancaria");
-      } finally {
-        setLoading(false);
+    const unsub = onSnapshot(doc(db, "restaurants", user.uid), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setStripeData({
+          stripe_account_id: d.stripe_account_id,
+          stripe_account_status: d.stripe_account_status,
+          stripe_charges_enabled: d.stripe_charges_enabled,
+          stripe_payouts_enabled: d.stripe_payouts_enabled,
+          stripe_details_submitted: d.stripe_details_submitted,
+          stripe_onboarding_complete: d.stripe_onboarding_complete,
+          stripe_requirements_due: d.stripe_requirements_due,
+          stripe_last_synced_at: d.stripe_last_synced_at,
+        });
       }
-    };
+      setLoading(false);
+    });
 
-    loadBankInfo();
+    return unsub;
   }, []);
 
-  const handleIbanChange = (text: string) => {
-    const clean = text.replace(/\s/g, "").toUpperCase();
-    if (clean.length <= 24) {
-      setIban(formatIban(clean));
+  // Auto-sync when returning from Stripe onboarding
+  useEffect(() => {
+    if (params.connected === "1" || params.refresh === "1") {
+      auth.currentUser?.getIdToken().then((token) => callSyncAccount(token)).catch(() => null);
     }
-  };
+  }, [params.connected, params.refresh]);
 
-  const handleSave = async () => {
-    if (!holder.trim()) {
-      Alert.alert("Campo requerido", "Introduce el titular de la cuenta");
-      return;
-    }
-
-    const cleanIban = iban.replace(/\s/g, "");
-    if (!cleanIban) {
-      Alert.alert("Campo requerido", "Introduce el IBAN");
-      return;
-    }
-
-    if (!isValidIban(cleanIban)) {
-      Alert.alert("IBAN incorrecto", "Comprueba el formato. Ejemplo: ES91 2100 0418 4502 0005 1332");
-      return;
-    }
-
+  const handleConnect = async () => {
     const user = auth.currentUser;
     if (!user) { Alert.alert("Error", "Usuario no autenticado"); return; }
 
+    setConnecting(true);
     try {
-      setSaving(true);
-      await setDoc(
-        doc(db, "restaurants", user.uid),
-        {
-          bankHolder: holder.trim(),
-          bankIban: cleanIban,
-          bankUpdatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-      setSaved(true);
-      Alert.alert("Guardado", "Cuenta bancaria actualizada correctamente");
-      router.back();
-    } catch {
-      Alert.alert("Error", "No se pudo guardar la cuenta bancaria");
+      const token = await user.getIdToken();
+      const url = await callConnectLink(token);
+      await Linking.openURL(url);
+    } catch (err: unknown) {
+      const e = err as Error;
+      Alert.alert("Error", e.message ?? "No se pudo conectar con Stripe");
     } finally {
-      setSaving(false);
+      setConnecting(false);
     }
   };
 
@@ -115,6 +138,8 @@ export default function BankScreen() {
     );
   }
 
+  const status = deriveStatus(stripeData ?? {});
+
   return (
     <View style={styles.screen}>
       <View style={styles.container}>
@@ -123,84 +148,265 @@ export default function BankScreen() {
           <Text style={styles.back}>Volver</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>Cuenta bancaria</Text>
-        <Text style={styles.subtitle}>
-          Aquí recibirás las propinas de tu restaurante
-        </Text>
+        <Text style={styles.title}>Cuenta de cobros</Text>
+        <Text style={styles.subtitle}>Aquí recibirás las propinas de tu restaurante</Text>
 
-        {saved && (
-          <View style={styles.savedBadge}>
-            <Ionicons name="checkmark-circle" size={16} color={C.GREEN_POSITIVE} />
-            <Text style={styles.savedBadgeText}>Cuenta configurada</Text>
-          </View>
+        {/* Status card */}
+        {status === "not_connected" && <NotConnected onConnect={handleConnect} connecting={connecting} />}
+        {(status === "pending" || status === "review") && <PendingUI onContinue={handleConnect} connecting={connecting} />}
+        {status === "action_required" && (
+          <ActionRequired
+            requirements={stripeData?.stripe_requirements_due ?? []}
+            onFix={handleConnect}
+            connecting={connecting}
+          />
+        )}
+        {status === "restricted" && <Restricted onFix={handleConnect} connecting={connecting} />}
+        {(status === "active" || status === "charges_only") && (
+          <ActiveAccount
+            chargesEnabled={stripeData?.stripe_charges_enabled ?? false}
+            payoutsEnabled={stripeData?.stripe_payouts_enabled ?? false}
+            lastSynced={stripeData?.stripe_last_synced_at}
+            onManage={handleConnect}
+          />
         )}
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Titular de la cuenta</Text>
-          <View style={[styles.inputWrapper, holderFocused && styles.inputWrapperFocused]}>
-            <Ionicons
-              name="person-outline"
-              size={16}
-              color={holderFocused ? C.VIOLET_PRIMARY : C.TEXT_TERTIARY}
-              style={styles.inputIcon}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre completo o empresa"
-              placeholderTextColor={C.TEXT_TERTIARY}
-              value={holder}
-              onChangeText={setHolder}
-              autoCorrect={false}
-              onFocus={() => setHolderFocused(true)}
-              onBlur={() => setHolderFocused(false)}
-            />
-          </View>
-
-          <Text style={styles.label}>IBAN</Text>
-          <View style={[styles.inputWrapper, ibanFocused && styles.inputWrapperFocused]}>
-            <Ionicons
-              name="card-outline"
-              size={16}
-              color={ibanFocused ? C.VIOLET_PRIMARY : C.TEXT_TERTIARY}
-              style={styles.inputIcon}
-            />
-            <TextInput
-              style={[styles.input, styles.ibanInput]}
-              placeholder="ES91 2100 0418 4502 0005 1332"
-              placeholderTextColor={C.TEXT_TERTIARY}
-              value={iban}
-              onChangeText={handleIbanChange}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              keyboardType="default"
-              onFocus={() => setIbanFocused(true)}
-              onBlur={() => setIbanFocused(false)}
-            />
-          </View>
-          <Text style={styles.ibanHint}>El IBAN se formatea automáticamente</Text>
-
-          <View style={styles.infoBox}>
-            <Ionicons name="shield-checkmark-outline" size={16} color={C.TEXT_TERTIARY} style={{ marginRight: 8, marginTop: 1 }} />
-            <Text style={styles.infoText}>
-              Tu IBAN se usa únicamente para procesar los pagos de propinas a través de nuestro proveedor de pagos. No se comparte con terceros.
-            </Text>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.button,
-              saving && styles.buttonDisabled,
-              pressed && !saving && { transform: [{ scale: 0.97 }] },
-            ]}
-            onPress={handleSave}
-            disabled={saving}
-          >
-            <Text style={styles.buttonText}>
-              {saving ? "Guardando..." : "Guardar cuenta"}
-            </Text>
-          </Pressable>
-        </View>
+        {/* Sync note */}
+        {stripeData?.stripe_last_synced_at && (
+          <Text style={styles.syncNote}>
+            Última sincronización: {formatSyncDate(stripeData.stripe_last_synced_at)}
+          </Text>
+        )}
       </View>
+    </View>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function NotConnected({ onConnect, connecting }: { onConnect: () => void; connecting: boolean }) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardIconBox}>
+        <Ionicons name="shield-checkmark-outline" size={32} color={C.VIOLET_PRIMARY} />
+      </View>
+      <Text style={styles.cardTitle}>Conecta tu cuenta bancaria</Text>
+      <Text style={styles.cardText}>
+        Stripe verificará de forma segura los datos del titular y la cuenta bancaria. El proceso
+        tarda menos de 5 minutos.
+      </Text>
+      <View style={styles.featureList}>
+        {[
+          "Pagos con tarjeta, Apple Pay y Google Pay",
+          "Transferencias automáticas a tu banco",
+          "Panel de control en Stripe",
+        ].map((f) => (
+          <View key={f} style={styles.featureRow}>
+            <Ionicons name="checkmark-circle" size={16} color={C.GREEN_POSITIVE} />
+            <Text style={styles.featureText}>{f}</Text>
+          </View>
+        ))}
+      </View>
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          connecting && styles.btnDisabled,
+          pressed && !connecting && { transform: [{ scale: 0.97 }] },
+        ]}
+        onPress={onConnect}
+        disabled={connecting}
+      >
+        {connecting ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <>
+            <Ionicons name="link-outline" size={18} color="#FFF" style={{ marginRight: 8 }} />
+            <Text style={styles.primaryBtnText}>Conectar cuenta con Stripe</Text>
+          </>
+        )}
+      </Pressable>
+      <Text style={styles.secureNote}>
+        <Ionicons name="lock-closed-outline" size={11} color={C.TEXT_TERTIARY} /> Stripe verifica los datos — QTIPS no accede a tu información bancaria
+      </Text>
+    </View>
+  );
+}
+
+function PendingUI({ onContinue, connecting }: { onContinue: () => void; connecting: boolean }) {
+  return (
+    <View style={styles.card}>
+      <View style={[styles.badge, styles.badgeOrange]}>
+        <Ionicons name="time-outline" size={14} color="#92400E" />
+        <Text style={[styles.badgeText, { color: "#92400E" }]}>Configuración pendiente</Text>
+      </View>
+      <Text style={styles.cardTitle}>Completa el registro</Text>
+      <Text style={styles.cardText}>
+        Necesitas terminar de configurar tu cuenta de Stripe para empezar a recibir propinas.
+      </Text>
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          connecting && styles.btnDisabled,
+          pressed && !connecting && { transform: [{ scale: 0.97 }] },
+        ]}
+        onPress={onContinue}
+        disabled={connecting}
+      >
+        {connecting ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Continuar configuración</Text>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+function ActionRequired({
+  requirements,
+  onFix,
+  connecting,
+}: {
+  requirements: string[];
+  onFix: () => void;
+  connecting: boolean;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={[styles.badge, styles.badgeOrange]}>
+        <Ionicons name="alert-circle-outline" size={14} color="#92400E" />
+        <Text style={[styles.badgeText, { color: "#92400E" }]}>Se necesita información</Text>
+      </View>
+      <Text style={styles.cardTitle}>Stripe necesita más datos</Text>
+      <Text style={styles.cardText}>
+        Completa la información requerida para que tu cuenta quede activa y puedas recibir propinas.
+      </Text>
+      {requirements.length > 0 && (
+        <View style={styles.reqList}>
+          {requirements.slice(0, 5).map((r) => (
+            <View key={r} style={styles.reqRow}>
+              <Ionicons name="ellipse" size={6} color={C.WARNING} />
+              <Text style={styles.reqText}>{r}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          { backgroundColor: C.WARNING },
+          connecting && styles.btnDisabled,
+          pressed && !connecting && { transform: [{ scale: 0.97 }] },
+        ]}
+        onPress={onFix}
+        disabled={connecting}
+      >
+        {connecting ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Completar información</Text>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+function Restricted({ onFix, connecting }: { onFix: () => void; connecting: boolean }) {
+  return (
+    <View style={styles.card}>
+      <View style={[styles.badge, styles.badgeRed]}>
+        <Ionicons name="ban-outline" size={14} color={C.ERROR} />
+        <Text style={[styles.badgeText, { color: C.ERROR }]}>Cuenta restringida</Text>
+      </View>
+      <Text style={styles.cardTitle}>Cuenta con restricciones</Text>
+      <Text style={styles.cardText}>
+        Tu cuenta de Stripe tiene restricciones activas. Accede al panel de Stripe para resolverlas.
+      </Text>
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          { backgroundColor: C.ERROR },
+          connecting && styles.btnDisabled,
+          pressed && !connecting && { transform: [{ scale: 0.97 }] },
+        ]}
+        onPress={onFix}
+        disabled={connecting}
+      >
+        {connecting ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Ver en Stripe</Text>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+function ActiveAccount({
+  chargesEnabled,
+  payoutsEnabled,
+  lastSynced,
+  onManage,
+}: {
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  lastSynced?: { toDate?: () => Date } | null;
+  onManage: () => void;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={[styles.badge, styles.badgeGreen]}>
+        <Ionicons name="checkmark-circle" size={14} color={C.GREEN_POSITIVE} />
+        <Text style={[styles.badgeText, { color: C.GREEN_POSITIVE }]}>Cuenta conectada</Text>
+      </View>
+      <Text style={styles.cardTitle}>Tu cuenta está activa</Text>
+
+      <View style={styles.statusList}>
+        <StatusRow
+          icon="card-outline"
+          label="Pagos con tarjeta"
+          enabled={chargesEnabled}
+        />
+        <StatusRow
+          icon="arrow-forward-circle-outline"
+          label="Transferencias bancarias"
+          enabled={payoutsEnabled}
+        />
+        <StatusRow
+          icon="phone-portrait-outline"
+          label="Apple Pay / Google Pay"
+          enabled={chargesEnabled}
+        />
+      </View>
+
+      {lastSynced && (
+        <Text style={styles.syncDetail}>
+          Sincronizado: {formatSyncDate(lastSynced)}
+        </Text>
+      )}
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.secondaryBtn,
+          pressed && { opacity: 0.75 },
+        ]}
+        onPress={onManage}
+      >
+        <Ionicons name="open-outline" size={16} color={C.VIOLET_PRIMARY} style={{ marginRight: 6 }} />
+        <Text style={styles.secondaryBtnText}>Gestionar en Stripe</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function StatusRow({ icon, label, enabled }: { icon: keyof typeof Ionicons.glyphMap; label: string; enabled: boolean }) {
+  return (
+    <View style={styles.statusRow}>
+      <View style={[styles.statusIconBox, { backgroundColor: enabled ? C.GREEN_SUBTLE : C.BG_INPUT }]}>
+        <Ionicons name={icon} size={16} color={enabled ? C.GREEN_POSITIVE : C.TEXT_TERTIARY} />
+      </View>
+      <Text style={styles.statusLabel}>{label}</Text>
+      <View style={[styles.statusDot, { backgroundColor: enabled ? C.GREEN_POSITIVE : C.TEXT_TERTIARY }]} />
     </View>
   );
 }
@@ -235,107 +441,115 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: C.TEXT_SECONDARY,
-    marginBottom: 16,
+    marginBottom: 24,
     fontSize: 14,
   },
-
-  savedBadge: {
-    backgroundColor: C.GREEN_SUBTLE,
-    borderWidth: 1.5,
-    borderColor: C.GREEN_BORDER,
-    borderRadius: RADIUS.xs,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignSelf: "flex-start",
-    marginBottom: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  savedBadgeText: {
-    color: C.GREEN_POSITIVE,
-    fontSize: 13,
-    fontWeight: "700",
+  syncNote: {
+    color: C.TEXT_TERTIARY,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 16,
   },
 
+  // Card
   card: {
     backgroundColor: C.BG_CARD,
     borderRadius: RADIUS.lg,
-    padding: 20,
+    padding: 22,
     ...SHADOW.md,
     borderWidth: 1,
     borderColor: C.BORDER,
   },
-  label: {
-    color: C.TEXT_PRIMARY,
-    marginBottom: 8,
-    marginTop: 14,
-    fontSize: 14,
-    fontWeight: "600",
+  cardIconBox: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: C.VIOLET_SUBTLE,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
-  inputWrapper: {
+  cardTitle: {
+    color: C.TEXT_PRIMARY,
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  cardText: {
+    color: C.TEXT_SECONDARY,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 20,
+  },
+
+  // Badges
+  badge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: C.BG_INPUT,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
-    borderColor: C.BORDER_INPUT,
-  },
-  inputWrapperFocused: {
-    borderColor: C.VIOLET_PRIMARY,
-    backgroundColor: "#FAFBFF",
-  },
-  inputIcon: {
-    paddingLeft: 12,
-    paddingRight: 6,
-  },
-  input: {
-    flex: 1,
-    color: C.TEXT_PRIMARY,
-    padding: 14,
-    fontSize: 15,
-  },
-  ibanInput: {
-    fontFamily: "monospace",
-    letterSpacing: 1,
-    fontSize: 15,
-  },
-  ibanHint: {
-    color: C.TEXT_TERTIARY,
-    fontSize: 11,
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  infoBox: {
-    backgroundColor: C.BG_INPUT,
+    gap: 6,
     borderRadius: RADIUS.xs,
-    padding: 14,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: C.BORDER,
-    flexDirection: "row",
-    alignItems: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignSelf: "flex-start",
+    marginBottom: 14,
   },
-  infoText: {
-    flex: 1,
-    color: C.TEXT_TERTIARY,
-    fontSize: 12,
-    lineHeight: 18,
+  badgeGreen: { backgroundColor: C.GREEN_SUBTLE, borderWidth: 1, borderColor: C.GREEN_BORDER },
+  badgeOrange: { backgroundColor: "#FFFBEB", borderWidth: 1, borderColor: "#FDE68A" },
+  badgeRed: { backgroundColor: C.ERROR_SUBTLE, borderWidth: 1, borderColor: "#FECDD3" },
+  badgeText: { fontSize: 12, fontWeight: "700" },
+
+  // Features list
+  featureList: { marginBottom: 20, gap: 10 },
+  featureRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  featureText: { color: C.TEXT_SECONDARY, fontSize: 14 },
+
+  // Requirements list
+  reqList: { marginBottom: 20, gap: 6 },
+  reqRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  reqText: { color: C.TEXT_SECONDARY, fontSize: 13, flex: 1 },
+
+  // Status list
+  statusList: { gap: 10, marginBottom: 20 },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  statusIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  button: {
-    marginTop: 24,
+  statusLabel: { flex: 1, fontSize: 14, color: C.TEXT_PRIMARY, fontWeight: "500" },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  syncDetail: { color: C.TEXT_TERTIARY, fontSize: 12, marginBottom: 16 },
+
+  // Buttons
+  primaryBtn: {
     backgroundColor: C.VIOLET_PRIMARY,
-    paddingVertical: 18,
+    paddingVertical: 17,
     borderRadius: RADIUS.md,
     alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
     ...SHADOW.violet,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  primaryBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 15 },
+  btnDisabled: { opacity: 0.55 },
+  secondaryBtn: {
+    paddingVertical: 14,
+    borderRadius: RADIUS.md,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: C.VIOLET_BORDER,
+    backgroundColor: C.VIOLET_SUBTLE,
   },
-  buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    fontSize: 15,
+  secondaryBtnText: { color: C.VIOLET_PRIMARY, fontWeight: "700", fontSize: 14 },
+  secureNote: {
+    color: C.TEXT_TERTIARY,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 14,
+    lineHeight: 16,
   },
 });

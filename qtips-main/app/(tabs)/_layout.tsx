@@ -42,13 +42,27 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="movements"
+        options={{
+          title: "Movimientos",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "receipt" : "receipt-outline"}
+              size={22}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="qr"
         options={{
           title: "QR",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "qr-code" : "qr-code-outline"}
-              size={22}
+              size={24}
               color={color}
             />
           ),
@@ -69,6 +83,7 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* Hidden tabs */}
       <Tabs.Screen name="index" options={{ href: null }} />
       <Tabs.Screen name="login" options={{ href: null }} />
       <Tabs.Screen name="stats" options={{ href: null }} />

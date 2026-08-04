@@ -33,6 +33,13 @@ function getInitials(name: string): string {
     .join("");
 }
 
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 14) return "Buenos días";
+  if (h < 21) return "Buenas tardes";
+  return "Buenas noches";
+}
+
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -157,7 +164,7 @@ export default function HomeScreen() {
           {/* ── Header ─────────────────────────────────────────────── */}
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={styles.greeting}>¡Hola!</Text>
+              <Text style={styles.greeting}>{getGreeting()}</Text>
               <Text style={styles.title} numberOfLines={1}>
                 {restaurantName}
               </Text>
@@ -218,7 +225,7 @@ export default function HomeScreen() {
               </View>
 
               <Pressable
-                onPress={() => router.push("/stats")}
+                onPress={() => router.push("/movements")}
                 style={({ pressed }) => [
                   styles.sectionLinkBtn,
                   pressed && { opacity: 0.7 },
@@ -395,7 +402,7 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   cardValuePrimary: {
-    color: C.GREEN_POSITIVE,
+    color: "#FFFFFF",
     fontSize: 34,
     fontWeight: "800",
   },

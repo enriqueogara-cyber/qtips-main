@@ -33,7 +33,8 @@ export default function QRScreen() {
   }, []);
 
   const restaurantId = user?.uid ?? "";
-  const qrValue = `https://pay.qtips.me/tip/${restaurantId}`;
+  const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? "https://qtips-main.vercel.app";
+  const qrValue = `${APP_URL}/tip/${restaurantId}`;
 
   const handleShare = async () => {
     if (!restaurantId) {

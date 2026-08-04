@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isOwner(restaurantId) {
+      return isAuth() && request.auth.uid == restaurantId;
+    }
+
+    // ── Restaurants ───────────────────────────────────────────────────────────
+    // Each restaurant document is keyed by the owner's Firebase UID.
+    match /restaurants/{restaurantId} {
+      allow read:   if isOwner(restaurantId);
+      allow create: if isOwner(restaurantId);
+      allow update: if isOwner(restaurantId);
+      allow delete: if false;
+
+      match /employees/{employeeId} {
+        allow read:   if isOwner(restaurantId);
+        allow create: if isOwner(restaurantId);
+        allow update: if isOwner(restaurantId);
+        allow delete: if false; // use status:"inactive" instead
+      }
+    }
+
+    // ── Tips / Payments ───────────────────────────────────────────────────────
+    // Only the owning restaurant can read; all writes are server-side only.
+    match /tips/{tipId} {
+      allow read:   if isAuth() && resource.data.restaurantId == request.auth.uid;
+      allow write:  if false;
+    }
+
+    // ── Stripe events — server-side only ─────────────────────────────────────
+    match /stripe_events/{eventId} {
+      allow read, write: if false;
+    }
+  }
+}
