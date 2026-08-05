@@ -17,7 +17,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { TipCardSkeleton } from "../../components/ui/Skeleton";
 import { C, RADIUS, SHADOW } from "../../constants/theme";
+import { DEMO_TIPS, IS_DEMO } from "../../lib/demo-data";
 import { auth, db } from "../../lib/firebase";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Tip = {
   id: string;
@@ -35,6 +38,8 @@ type Tip = {
 };
 
 type StatusFilter = "all" | "paid" | "failed" | "refunded" | "pending";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(ts: { toDate?: () => Date } | null): string {
   if (!ts?.toDate) return "—";
@@ -97,7 +102,7 @@ function downloadCsv(rows: Tip[]) {
     a.click();
     URL.revokeObjectURL(url);
   } else {
-    Alert.alert("Exportar CSV", "La exportación CSV está disponible desde el navegador web.");
+    Alert.alert("Exportar movimientos", "La exportación CSV está disponible desde el navegador web.");
   }
 }
 
@@ -111,6 +116,55 @@ const STATUS_OPTIONS: { label: string; value: StatusFilter }[] = [
 
 const PAGE_SIZE = 30;
 
+// ─── Tip row ──────────────────────────────────────────────────────────────────
+
+function TipRow({ tip }: { tip: Tip }) {
+  return (
+    <View style={styles.row}>
+      <View style={[styles.iconBox, { backgroundColor: statusBg(tip.status) }]}>
+        <Ionicons
+          name={
+            tip.status === "paid" ? "checkmark-circle" :
+            tip.status === "failed" ? "close-circle" : "refresh-circle"
+          }
+          size={20}
+          color={statusColor(tip.status)}
+        />
+      </View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <Text style={styles.rowEmployee} numberOfLines={1}>{tip.employeeName}</Text>
+          <Text style={[styles.rowAmount, tip.status === "paid" && styles.rowAmountPaid]}>
+            {tip.status === "paid" ? "+" : ""}{tip.amount.toFixed(2)} €
+          </Text>
+        </View>
+        <View style={styles.rowBottom}>
+          <Text style={styles.rowDate}>{fmt(tip.createdAt)}</Text>
+          <View style={styles.rowBadges}>
+            {tip.isTest && (
+              <View style={styles.testBadge}>
+                <Text style={styles.testBadgeText}>TEST</Text>
+              </View>
+            )}
+            <View style={[styles.statusBadge, { backgroundColor: statusBg(tip.status) }]}>
+              <Text style={[styles.statusText, { color: statusColor(tip.status) }]}>
+                {statusLabel(tip.status)}
+              </Text>
+            </View>
+          </View>
+        </View>
+        {tip.feeCents > 0 && tip.status === "paid" && (
+          <Text style={styles.feeText}>
+            Comisión: {(tip.feeCents / 100).toFixed(2)} € · Neto: {((tip.amountCents - tip.feeCents) / 100).toFixed(2)} €
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
 export default function MovementsScreen() {
   const [tips, setTips] = useState<Tip[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +176,14 @@ export default function MovementsScreen() {
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
+    // ── Demo mode ──────────────────────────────────────────────────────────
+    if (IS_DEMO) {
+      setTips(DEMO_TIPS as unknown as Tip[]);
+      setLoading(false);
+      return;
+    }
+
+    // ── Real Firebase ──────────────────────────────────────────────────────
     const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       if (!firebaseUser) { setLoading(false); return; }
@@ -156,6 +218,8 @@ export default function MovementsScreen() {
     return unsubAuth;
   }, []);
 
+  // ── Derived values ──────────────────────────────────────────────────────────
+
   const filtered = useMemo(() => {
     let result = tips;
     if (!showTests) result = result.filter((t) => !t.isTest);
@@ -176,6 +240,10 @@ export default function MovementsScreen() {
   const realCount = tips.filter((t) => t.status === "paid" && !t.isTest).length;
 
   const handleExport = () => {
+    if (IS_DEMO) {
+      Alert.alert("Modo demostración", "La exportación no está disponible en modo demo.");
+      return;
+    }
     if (filtered.length === 0) {
       Alert.alert("Sin datos", "No hay movimientos con los filtros actuales.");
       return;
@@ -183,7 +251,9 @@ export default function MovementsScreen() {
     downloadCsv(filtered);
   };
 
-  if (!user) {
+  // ── Guard for non-demo (no user) ────────────────────────────────────────────
+
+  if (!IS_DEMO && !user && !loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
@@ -200,7 +270,7 @@ export default function MovementsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Movimientos</Text>
@@ -211,11 +281,11 @@ export default function MovementsScreen() {
             onPress={handleExport}
           >
             <Ionicons name="download-outline" size={16} color={C.VIOLET_PRIMARY} />
-            <Text style={styles.exportText}>CSV</Text>
+            <Text style={styles.exportText}>Exportar</Text>
           </Pressable>
         </View>
 
-        {/* Summary card */}
+        {/* ── Summary card ────────────────────────────────────────────────── */}
         {!loading && realCount > 0 && (
           <View style={styles.summaryCard}>
             <View>
@@ -229,7 +299,7 @@ export default function MovementsScreen() {
           </View>
         )}
 
-        {/* Search */}
+        {/* ── Search ──────────────────────────────────────────────────────── */}
         <View style={styles.searchWrapper}>
           <Ionicons name="search-outline" size={16} color={C.TEXT_TERTIARY} style={{ marginLeft: 12 }} />
           <TextInput
@@ -242,8 +312,13 @@ export default function MovementsScreen() {
           />
         </View>
 
-        {/* Status filter chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chips}>
+        {/* ── Status filter chips ──────────────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipsScroll}
+          contentContainerStyle={styles.chips}
+        >
           {STATUS_OPTIONS.map((opt) => (
             <Pressable
               key={opt.value}
@@ -263,7 +338,7 @@ export default function MovementsScreen() {
           </Pressable>
         </ScrollView>
 
-        {/* Count */}
+        {/* ── Count ───────────────────────────────────────────────────────── */}
         {!loading && (
           <Text style={styles.resultCount}>
             {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
@@ -271,12 +346,10 @@ export default function MovementsScreen() {
           </Text>
         )}
 
-        {/* List */}
+        {/* ── List ────────────────────────────────────────────────────────── */}
         {loading ? (
           <View style={styles.list}>
-            {[1, 2, 3, 4, 5].map((k) => (
-              <TipCardSkeleton key={k} />
-            ))}
+            {[1, 2, 3, 4, 5].map((k) => <TipCardSkeleton key={k} />)}
           </View>
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -291,9 +364,7 @@ export default function MovementsScreen() {
         ) : (
           <>
             <View style={styles.list}>
-              {paginated.map((tip) => (
-                <TipRow key={tip.id} tip={tip} />
-              ))}
+              {paginated.map((tip) => <TipRow key={tip.id} tip={tip} />)}
             </View>
             {paginated.length < filtered.length && (
               <Pressable
@@ -312,48 +383,7 @@ export default function MovementsScreen() {
   );
 }
 
-function TipRow({ tip }: { tip: Tip }) {
-  return (
-    <View style={styles.row}>
-      <View style={[styles.iconBox, { backgroundColor: statusBg(tip.status) }]}>
-        <Ionicons
-          name={
-            tip.status === "paid" ? "checkmark-circle" :
-            tip.status === "failed" ? "close-circle" : "refresh-circle"
-          }
-          size={20}
-          color={statusColor(tip.status)}
-        />
-      </View>
-      <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowEmployee} numberOfLines={1}>{tip.employeeName}</Text>
-          <Text style={styles.rowAmount}>{tip.amount.toFixed(2)} €</Text>
-        </View>
-        <View style={styles.rowBottom}>
-          <Text style={styles.rowDate}>{fmt(tip.createdAt)}</Text>
-          <View style={styles.rowBadges}>
-            {tip.isTest && (
-              <View style={styles.testBadge}>
-                <Text style={styles.testBadgeText}>TEST</Text>
-              </View>
-            )}
-            <View style={[styles.statusBadge, { backgroundColor: statusBg(tip.status) }]}>
-              <Text style={[styles.statusText, { color: statusColor(tip.status) }]}>
-                {statusLabel(tip.status)}
-              </Text>
-            </View>
-          </View>
-        </View>
-        {tip.feeCents > 0 && tip.status === "paid" && (
-          <Text style={styles.feeText}>
-            Comisión: {(tip.feeCents / 100).toFixed(2)} € · Neto: {((tip.amountCents - tip.feeCents) / 100).toFixed(2)} €
-          </Text>
-        )}
-      </View>
-    </View>
-  );
-}
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.BG_SCREEN },
@@ -374,7 +404,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.VIOLET_SUBTLE,
     borderRadius: RADIUS.sm,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: C.VIOLET_BORDER,
     marginTop: 4,
@@ -449,6 +479,7 @@ const styles = StyleSheet.create({
   rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   rowEmployee: { flex: 1, fontSize: 15, fontWeight: "700", color: C.TEXT_PRIMARY, marginRight: 8 },
   rowAmount: { fontSize: 15, fontWeight: "800", color: C.TEXT_PRIMARY },
+  rowAmountPaid: { color: C.GREEN_POSITIVE },
   rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 4 },
   rowDate: { fontSize: 12, color: C.TEXT_TERTIARY },
   rowBadges: { flexDirection: "row", gap: 6 },
@@ -469,19 +500,5 @@ const styles = StyleSheet.create({
   },
   loadMoreText: { color: C.VIOLET_PRIMARY, fontSize: 14, fontWeight: "700" },
 
-  center: { paddingVertical: 60, alignItems: "center", gap: 12 },
-  loadingText: { color: C.TEXT_TERTIARY, fontSize: 13 },
-  emptyBox: {
-    marginTop: 20,
-    backgroundColor: C.BG_CARD,
-    borderRadius: RADIUS.lg,
-    padding: 32,
-    alignItems: "center",
-    gap: 10,
-    ...SHADOW.sm,
-    borderWidth: 1,
-    borderColor: C.BORDER,
-  },
-  emptyTitle: { fontSize: 17, fontWeight: "800", color: C.TEXT_PRIMARY, marginTop: 8 },
-  emptyText: { fontSize: 13, color: C.TEXT_SECONDARY, textAlign: "center", lineHeight: 20, maxWidth: 280 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
 });

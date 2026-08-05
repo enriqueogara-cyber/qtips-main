@@ -9,71 +9,79 @@ import { Platform } from 'react-native';
 // ─── Colour palette ──────────────────────────────────────────────────────────
 
 export const C = {
-  VIOLET_PRIMARY:  '#6D4AFF',
-  VIOLET_DARK:     '#4930C8',
-  VIOLET_LIGHT:    '#8B5CF6',
-  VIOLET_SUBTLE:   '#EEF2FF',
-  VIOLET_BORDER:   '#C4B5FD',
+  // Brand violet
+  VIOLET_PRIMARY:     '#6C4DFF',
+  VIOLET_DARK:        '#4D32D7',
+  VIOLET_HOVER:       '#5939F0',
+  VIOLET_LIGHT:       '#8B6FFF',
+  VIOLET_SUBTLE:      '#EEE9FF',
+  VIOLET_EXTRA_LIGHT: '#F6F3FF',
+  VIOLET_BORDER:      '#C8B8FF',
 
-  GREEN_POSITIVE:  '#20D69B',
-  GREEN_SUBTLE:    '#F0FDF4',
-  GREEN_BORDER:    '#86EFAC',
+  // Positive / money
+  GREEN_POSITIVE:  '#16A66A',
+  GREEN_SUBTLE:    '#EAF8F2',
+  GREEN_BORDER:    '#6EE7B7',
 
-  TEXT_PRIMARY:    '#111827',
-  TEXT_SECONDARY:  '#667085',
-  TEXT_TERTIARY:   '#94A3B8',
+  // Text
+  TEXT_PRIMARY:    '#171721',
+  TEXT_SECONDARY:  '#686879',
+  TEXT_TERTIARY:   '#9B9BAD',
 
-  BG_SCREEN:       '#F6F7FB',
+  // Backgrounds
+  BG_SCREEN:       '#F7F8FC',
   BG_CARD:         '#FFFFFF',
   BG_INPUT:        '#F8FAFC',
 
-  BORDER:          '#E7E9F0',
+  // Borders
+  BORDER:          '#E8E8F0',
   BORDER_INPUT:    '#E2E8F0',
 
-  ERROR:           '#F04458',
+  // Semantic
+  ERROR:           '#DC3545',
   ERROR_SUBTLE:    '#FEF2F2',
-  WARNING:         '#F79009',
+  WARNING:         '#F59E0B',
 
   // Legacy aliases kept for backward compat
-  VIOLET:          '#6D4AFF',
-  GREY_LIGHT:      '#F6F7FB',
+  VIOLET:          '#6C4DFF',
+  GREY_LIGHT:      '#F7F8FC',
 } as const;
 
 // ─── Shadows ─────────────────────────────────────────────────────────────────
 
 export const SHADOW = {
   sm: {
-    shadowColor: '#000',
+    shadowColor: '#171721',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
   },
   md: {
-    shadowColor: '#000',
+    shadowColor: '#171721',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 3,
   },
   lg: {
-    shadowColor: '#000',
+    shadowColor: '#171721',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 20,
     elevation: 6,
   },
   violet: {
-    shadowColor: '#6D4AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowColor: '#6C4DFF',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 16,
+    elevation: 8,
   },
   violetSm: {
-    shadowColor: '#6D4AFF',
+    shadowColor: '#6C4DFF',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.22,
     shadowRadius: 8,
     elevation: 4,
   },
@@ -90,6 +98,36 @@ export const RADIUS = {
   full: 999,
 } as const;
 
+// ─── Spacing scale ────────────────────────────────────────────────────────────
+
+export const S = {
+  xs:   4,
+  sm:   8,
+  md:   12,
+  lg:   16,
+  xl:   20,
+  '2xl': 24,
+  '3xl': 32,
+  '4xl': 40,
+  '5xl': 48,
+} as const;
+
+// ─── Common sizes ─────────────────────────────────────────────────────────────
+
+export const SIZE = {
+  tabBar:         62,
+  tabBarIcon:     24,
+  buttonHeight:   52,
+  buttonHeightSm: 44,
+  inputHeight:    52,
+  avatarSm:       32,
+  avatarMd:       44,
+  avatarLg:       56,
+  iconSm:         16,
+  iconMd:         20,
+  iconLg:         24,
+} as const;
+
 // ─── Typography ──────────────────────────────────────────────────────────────
 
 export const FONT = {
@@ -99,7 +137,7 @@ export const FONT = {
   h4: { fontSize: 17, fontWeight: '700' as const, color: C.TEXT_PRIMARY },
   body: { fontSize: 15, fontWeight: '400' as const, color: C.TEXT_PRIMARY },
   bodyMd: { fontSize: 14, fontWeight: '400' as const, color: C.TEXT_SECONDARY },
-  label: { fontSize: 12, fontWeight: '600' as const, color: C.TEXT_TERTIARY, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  label: { fontSize: 11, fontWeight: '700' as const, color: C.TEXT_TERTIARY, textTransform: 'uppercase' as const, letterSpacing: 0.6 },
   caption: { fontSize: 12, fontWeight: '400' as const, color: C.TEXT_TERTIARY },
 } as const;
 
@@ -126,36 +164,6 @@ export const Colors = {
     tabIconSelected: tintColorDark,
   },
 };
-
-// ─── Spacing scale ───────────────────────────────────────────────────────────
-
-export const S = {
-  xs:   4,
-  sm:   8,
-  md:   12,
-  lg:   16,
-  xl:   20,
-  '2xl': 24,
-  '3xl': 32,
-  '4xl': 40,
-  '5xl': 48,
-} as const;
-
-// ─── Common sizes ─────────────────────────────────────────────────────────────
-
-export const SIZE = {
-  tabBar:         60,
-  tabBarIcon:     24,
-  buttonHeight:   52,
-  buttonHeightSm: 44,
-  inputHeight:    52,
-  avatarSm:       32,
-  avatarMd:       44,
-  avatarLg:       56,
-  iconSm:         16,
-  iconMd:         20,
-  iconLg:         24,
-} as const;
 
 export const Fonts = Platform.select({
   ios: {

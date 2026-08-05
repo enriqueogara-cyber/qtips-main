@@ -13,7 +13,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { C, RADIUS, SHADOW } from "../../constants/theme";
+import { DEMO_TIPS, IS_DEMO } from "../../lib/demo-data";
 import { auth, db } from "../../lib/firebase";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type TipDoc = {
   amount: number;
@@ -24,57 +27,315 @@ type TipDoc = {
 };
 
 type ChartItem = { label: string; value: number };
+type StatPeriod = "7d" | "30d" | "month";
 
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const DAY_LABELS = ["D", "L", "M", "X", "J", "V", "S"];
 
-function getWeeklyData(tips: TipDoc[]): ChartItem[] {
+// ─── Period helpers ───────────────────────────────────────────────────────────
+
+function getPeriodBounds(period: StatPeriod): { start: Date; label: string } {
   const now = new Date();
-  return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(now);
-    day.setDate(now.getDate() - (6 - i));
-    day.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(day);
-    dayEnd.setHours(23, 59, 59, 999);
-    const value = tips
-      .filter((t) => {
-        if (!t.createdAt?.toDate) return false;
-        const d = t.createdAt.toDate();
-        return d >= day && d <= dayEnd && t.status === "paid" && !t.isTest;
-      })
-      .reduce((sum, t) => sum + (t.amount ?? 0), 0);
-    return { label: DAY_LABELS[day.getDay()], value };
-  });
+  switch (period) {
+    case "7d": {
+      const start = new Date(now);
+      start.setDate(now.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+      return { start, label: "últimos 7 días" };
+    }
+    case "30d": {
+      const start = new Date(now);
+      start.setDate(now.getDate() - 30);
+      start.setHours(0, 0, 0, 0);
+      return { start, label: "últimos 30 días" };
+    }
+    case "month": {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      return {
+        start,
+        label: now.toLocaleDateString("es-ES", { month: "long" }),
+      };
+    }
+  }
 }
 
-function getMonthlyData(tips: TipDoc[]): ChartItem[] {
+function getChartData(tips: TipDoc[], period: StatPeriod): ChartItem[] {
   const now = new Date();
-  return Array.from({ length: 4 }, (_, i) => {
-    const weekEnd = new Date(now);
-    weekEnd.setDate(now.getDate() - (3 - i) * 7);
-    weekEnd.setHours(23, 59, 59, 999);
-    const weekStart = new Date(weekEnd);
-    weekStart.setDate(weekEnd.getDate() - 6);
+  if (period === "7d") {
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(now);
+      day.setDate(now.getDate() - (6 - i));
+      day.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+      const value = tips
+        .filter((t) => {
+          if (!t.createdAt?.toDate || t.status !== "paid" || t.isTest) return false;
+          const d = t.createdAt.toDate();
+          return d >= day && d <= dayEnd;
+        })
+        .reduce((s, t) => s + t.amount, 0);
+      return { label: DAY_LABELS[day.getDay()], value };
+    });
+  }
+  if (period === "30d") {
+    return Array.from({ length: 6 }, (_, i) => {
+      const weekEnd = new Date(now);
+      weekEnd.setDate(now.getDate() - (5 - i) * 5);
+      weekEnd.setHours(23, 59, 59, 999);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekEnd.getDate() - 4);
+      weekStart.setHours(0, 0, 0, 0);
+      const value = tips
+        .filter((t) => {
+          if (!t.createdAt?.toDate || t.status !== "paid" || t.isTest) return false;
+          const d = t.createdAt.toDate();
+          return d >= weekStart && d <= weekEnd;
+        })
+        .reduce((s, t) => s + t.amount, 0);
+      const labelDate = new Date(weekStart);
+      return { label: `${labelDate.getDate()}/${labelDate.getMonth() + 1}`, value };
+    });
+  }
+  // month — by week of this month
+  return Array.from({ length: 5 }, (_, i) => {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekStart = new Date(monthStart);
+    weekStart.setDate(monthStart.getDate() + i * 7);
     weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+    if (weekStart.getMonth() !== now.getMonth()) return null;
     const value = tips
       .filter((t) => {
-        if (!t.createdAt?.toDate) return false;
+        if (!t.createdAt?.toDate || t.status !== "paid" || t.isTest) return false;
         const d = t.createdAt.toDate();
-        return d >= weekStart && d <= weekEnd && t.status === "paid" && !t.isTest;
+        return d >= weekStart && d <= weekEnd;
       })
-      .reduce((sum, t) => sum + (t.amount ?? 0), 0);
+      .reduce((s, t) => s + t.amount, 0);
     return { label: `S${i + 1}`, value };
-  });
+  }).filter(Boolean) as ChartItem[];
 }
+
+// ─── Metric card ─────────────────────────────────────────────────────────────
+
+function MetricCard({
+  label, value, icon, sub, accent = false,
+}: {
+  label: string; value: string; icon: keyof typeof Ionicons.glyphMap; sub?: string; accent?: boolean;
+}) {
+  return (
+    <View style={[mCard.card, accent && mCard.cardAccent]}>
+      <View style={[mCard.icon, accent && mCard.iconAccent]}>
+        <Ionicons name={icon} size={16} color={accent ? "#FFFFFF" : C.VIOLET_PRIMARY} />
+      </View>
+      <Text style={mCard.label}>{label}</Text>
+      <Text style={[mCard.value, accent && mCard.valueAccent]}>{value}</Text>
+      {sub && <Text style={mCard.sub}>{sub}</Text>}
+    </View>
+  );
+}
+
+const mCard = StyleSheet.create({
+  card: {
+    flex: 1, minWidth: 130,
+    backgroundColor: C.BG_CARD,
+    borderRadius: RADIUS.md,
+    padding: 14,
+    ...SHADOW.sm,
+    borderWidth: 1,
+    borderColor: C.BORDER,
+  },
+  cardAccent: {
+    backgroundColor: C.VIOLET_EXTRA_LIGHT,
+    borderColor: C.VIOLET_BORDER,
+  },
+  icon: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: C.VIOLET_SUBTLE,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 10,
+  },
+  iconAccent: { backgroundColor: C.VIOLET_PRIMARY },
+  label: { color: C.TEXT_TERTIARY, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
+  value: { color: C.TEXT_PRIMARY, fontSize: 20, fontWeight: "800" },
+  valueAccent: { color: C.VIOLET_PRIMARY },
+  sub: { color: C.TEXT_TERTIARY, fontSize: 11, marginTop: 2 },
+});
+
+// ─── Bar chart ────────────────────────────────────────────────────────────────
+
+function BarChart({ data, period }: { data: ChartItem[]; period: StatPeriod }) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const MAX_H = 130;
+
+  return (
+    <View style={chart.card}>
+      <Text style={chart.title}>
+        {period === "7d"
+          ? "Propinas diarias — últimos 7 días"
+          : period === "30d"
+          ? "Propinas por tramo — últimos 30 días"
+          : "Propinas por semana — este mes"}
+      </Text>
+      <View style={chart.bars}>
+        {data.map((item, idx) => {
+          const barH = (item.value / maxVal) * MAX_H;
+          const active = hovered === idx;
+          return (
+            <View key={idx} style={chart.col}>
+              <Pressable
+                onHoverIn={() => setHovered(idx)}
+                onHoverOut={() => setHovered(null)}
+                onPress={() => setHovered(hovered === idx ? null : idx)}
+                style={chart.barPressable}
+              >
+                {active && item.value > 0 && (
+                  <View style={chart.tooltip}>
+                    <Text style={chart.tooltipText}>{item.value.toFixed(2)} €</Text>
+                  </View>
+                )}
+                <View
+                  style={[
+                    chart.bar,
+                    { height: Math.max(barH, item.value > 0 ? 4 : 2) },
+                    active && chart.barActive,
+                    item.value === 0 && chart.barZero,
+                  ]}
+                />
+              </Pressable>
+              <Text style={chart.barLabel}>{item.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const chart = StyleSheet.create({
+  card: {
+    backgroundColor: C.BG_CARD,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    ...SHADOW.md,
+    borderWidth: 1,
+    borderColor: C.BORDER,
+  },
+  title: { color: C.TEXT_SECONDARY, fontSize: 12, fontWeight: "600", marginBottom: 20 },
+  bars: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", height: 160 },
+  col: { flex: 1, alignItems: "center" },
+  barPressable: { alignItems: "center", width: "100%", height: 140, justifyContent: "flex-end" },
+  bar: { width: "60%", maxWidth: 28, backgroundColor: C.VIOLET_PRIMARY, borderRadius: 6, opacity: 0.85 },
+  barActive: { backgroundColor: C.VIOLET_DARK, opacity: 1 },
+  barZero: { backgroundColor: C.BORDER, opacity: 0.5 },
+  barLabel: { color: C.TEXT_TERTIARY, marginTop: 8, fontSize: 10, fontWeight: "500" },
+  tooltip: {
+    position: "absolute",
+    top: -34,
+    backgroundColor: C.TEXT_PRIMARY,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.xs,
+    zIndex: 10,
+    minWidth: 54,
+    alignItems: "center",
+  },
+  tooltipText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+});
+
+// ─── Insights card ────────────────────────────────────────────────────────────
+
+function InsightsCard({ tips, period }: { tips: TipDoc[]; period: StatPeriod }) {
+  const { start } = getPeriodBounds(period);
+  const real = tips.filter((t) => t.status === "paid" && !t.isTest && t.createdAt?.toDate?.() && (t.createdAt.toDate()!) >= start);
+
+  const insights = useMemo(() => {
+    const out: string[] = [];
+    if (real.length === 0) return out;
+
+    // Best day of week
+    const byDow: Record<number, number> = {};
+    real.forEach((t) => {
+      if (!t.createdAt?.toDate) return;
+      const dow = t.createdAt.toDate().getDay();
+      byDow[dow] = (byDow[dow] ?? 0) + t.amount;
+    });
+    const bestDow = Object.entries(byDow).sort((a, b) => +b[1] - +a[1])[0];
+    if (bestDow) {
+      out.push(`${DAY_NAMES[+bestDow[0]]} es tu mejor día con ${(+bestDow[1]).toFixed(2)} € en propinas.`);
+    }
+
+    // Top employee
+    const byEmp: Record<string, number> = {};
+    real.forEach((t) => { byEmp[t.employeeName] = (byEmp[t.employeeName] ?? 0) + t.amount; });
+    const topEmp = Object.entries(byEmp).sort((a, b) => b[1] - a[1])[0];
+    if (topEmp) {
+      out.push(`${topEmp[0]} lidera con ${topEmp[1].toFixed(2)} €.`);
+    }
+
+    // Avg tip
+    const avg = real.reduce((s, t) => s + t.amount, 0) / real.length;
+    if (avg > 0) {
+      out.push(`La propina media es de ${avg.toFixed(2)} €.`);
+    }
+
+    return out;
+  }, [real]);
+
+  if (insights.length === 0) return null;
+
+  return (
+    <View style={ins.card}>
+      <View style={ins.header}>
+        <Ionicons name="sparkles" size={16} color={C.VIOLET_PRIMARY} />
+        <Text style={ins.title}>Insights del periodo</Text>
+      </View>
+      {insights.map((text, i) => (
+        <View key={i} style={ins.row}>
+          <View style={ins.dot} />
+          <Text style={ins.text}>{text}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const ins = StyleSheet.create({
+  card: {
+    backgroundColor: C.VIOLET_EXTRA_LIGHT,
+    borderRadius: RADIUS.lg,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.VIOLET_BORDER,
+  },
+  header: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  title: { color: C.VIOLET_DARK, fontSize: 14, fontWeight: "800" },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 6 },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.VIOLET_PRIMARY, marginTop: 6, flexShrink: 0 },
+  text: { color: C.VIOLET_DARK, fontSize: 13, lineHeight: 19, flex: 1 },
+});
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function StatsScreen() {
-  const [mode, setMode] = useState<"weekly" | "monthly">("weekly");
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const [period, setPeriod] = useState<StatPeriod>("7d");
   const [tips, setTips] = useState<TipDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
+    if (IS_DEMO) {
+      setTips(DEMO_TIPS as unknown as TipDoc[]);
+      setLoading(false);
+      return;
+    }
     const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       if (!firebaseUser) { setLoading(false); return; }
@@ -97,35 +358,53 @@ export default function StatsScreen() {
     return unsubAuth;
   }, []);
 
-  const realTips = useMemo(() => tips.filter((t) => t.status === "paid" && !t.isTest), [tips]);
+  const { start, label: periodLabel } = getPeriodBounds(period);
 
-  const data = mode === "weekly" ? getWeeklyData(tips) : getMonthlyData(tips);
-  const maxValue = Math.max(...data.map((d) => d.value), 1);
-  const MAX_BAR_HEIGHT = 140;
+  const realAll = useMemo(() => tips.filter((t) => t.status === "paid" && !t.isTest), [tips]);
+  const realPeriod = useMemo(
+    () => realAll.filter((t) => t.createdAt?.toDate?.() && (t.createdAt.toDate()!) >= start),
+    [realAll, start]
+  );
 
-  const total = useMemo(() => realTips.reduce((s, t) => s + (t.amount ?? 0), 0), [realTips]);
-  const avg = realTips.length > 0 ? total / realTips.length : 0;
+  const total = useMemo(() => realPeriod.reduce((s, t) => s + t.amount, 0), [realPeriod]);
+  const avg = realPeriod.length > 0 ? total / realPeriod.length : 0;
+  const bestTip = useMemo(() => Math.max(...realPeriod.map((t) => t.amount), 0), [realPeriod]);
+
   const bestDay = useMemo(() => {
-    if (realTips.length === 0) return null;
+    if (realPeriod.length === 0) return null;
     const byDay: Record<string, number> = {};
-    realTips.forEach((t) => {
+    realPeriod.forEach((t) => {
       if (!t.createdAt?.toDate) return;
       const key = t.createdAt.toDate().toLocaleDateString("es-ES");
-      byDay[key] = (byDay[key] ?? 0) + (t.amount ?? 0);
+      byDay[key] = (byDay[key] ?? 0) + t.amount;
     });
     const best = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
     return best ? { date: best[0], amount: best[1] } : null;
-  }, [realTips]);
+  }, [realPeriod]);
+
+  const topEmployee = useMemo(() => {
+    if (realPeriod.length === 0) return null;
+    const map: Record<string, number> = {};
+    realPeriod.forEach((t) => {
+      map[t.employeeName] = (map[t.employeeName] ?? 0) + t.amount;
+    });
+    const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
+    return sorted[0] ? { name: sorted[0][0], amount: sorted[0][1] } : null;
+  }, [realPeriod]);
 
   const byEmployee = useMemo(() => {
     const map: Record<string, number> = {};
-    realTips.forEach((t) => {
-      map[t.employeeName] = (map[t.employeeName] ?? 0) + (t.amount ?? 0);
+    realAll.forEach((t) => {
+      map[t.employeeName] = (map[t.employeeName] ?? 0) + t.amount;
     });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [realTips]);
+  }, [realAll]);
 
-  if (!user || loading) {
+  const chartData = useMemo(() => getChartData(tips, period), [tips, period]);
+
+  const topPad = insets.top > 0 ? insets.top + 8 : 20;
+
+  if (!IS_DEMO && !user && !loading) {
     return (
       <View style={[styles.screen, { justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
@@ -133,8 +412,15 @@ export default function StatsScreen() {
     );
   }
 
-  const isEmpty = realTips.length === 0;
-  const topPad = insets.top > 0 ? insets.top + 8 : 20;
+  if (loading) {
+    return (
+      <View style={[styles.screen, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
+      </View>
+    );
+  }
+
+  const isEmpty = realAll.length === 0;
 
   return (
     <ScrollView
@@ -143,6 +429,7 @@ export default function StatsScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.container}>
+        {/* Header */}
         <Text style={styles.title}>Estadísticas</Text>
         <Text style={styles.subtitle}>Solo propinas reales completadas</Text>
 
@@ -154,104 +441,110 @@ export default function StatsScreen() {
           />
         ) : (
           <>
-            {/* Summary metrics */}
-            <View style={styles.metricsGrid}>
-              <MetricCard label="Total acumulado" value={`${total.toFixed(2)} €`} icon="cash-outline" />
-              <MetricCard label="Propinas" value={String(realTips.length)} icon="receipt-outline" />
-              <MetricCard label="Media" value={`${avg.toFixed(2)} €`} icon="analytics-outline" />
-              {bestDay && (
-                <MetricCard label="Mejor día" value={`${bestDay.amount.toFixed(2)} €`} icon="trophy-outline" sub={bestDay.date} />
-              )}
-            </View>
-
-            {/* Mode switch */}
-            <View style={styles.modeSwitch}>
-              {(["weekly", "monthly"] as const).map((m) => (
+            {/* Period selector */}
+            <View style={styles.periodRow}>
+              {(["7d", "30d", "month"] as const).map((p) => (
                 <Pressable
-                  key={m}
-                  style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
-                  onPress={() => setMode(m)}
+                  key={p}
+                  style={[styles.periodBtn, period === p && styles.periodBtnActive]}
+                  onPress={() => setPeriod(p)}
                 >
-                  <Text style={[styles.modeBtnText, mode === m && styles.modeBtnTextActive]}>
-                    {m === "weekly" ? "Semanal" : "Mensual"}
+                  <Text style={[styles.periodText, period === p && styles.periodTextActive]}>
+                    {p === "7d" ? "7 días" : p === "30d" ? "30 días" : "Este mes"}
                   </Text>
                 </Pressable>
               ))}
             </View>
 
-            {/* Chart */}
-            <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>
-                {mode === "weekly" ? "Propinas por día — últimos 7 días" : "Propinas por semana — último mes"}
-              </Text>
-              <View style={styles.chart}>
-                {data.map((item, index) => {
-                  const barH = (item.value / maxValue) * MAX_BAR_HEIGHT;
-                  const isActive = hoveredBar === index;
-                  return (
-                    <View key={index} style={styles.barWrapper}>
-                      <Pressable
-                        onHoverIn={() => setHoveredBar(index)}
-                        onHoverOut={() => setHoveredBar(null)}
-                        onPress={() => setHoveredBar(hoveredBar === index ? null : index)}
-                      >
-                        {isActive && item.value > 0 && (
-                          <View style={styles.tooltip}>
-                            <Text style={styles.tooltipText}>{item.value.toFixed(2)} €</Text>
-                          </View>
-                        )}
-                        <View
-                          style={[
-                            styles.bar,
-                            { height: Math.max(barH, item.value > 0 ? 4 : 2) },
-                            isActive && styles.barActive,
-                            item.value === 0 && styles.barZero,
-                          ]}
-                        />
-                      </Pressable>
-                      <Text style={styles.barLabel}>{item.label}</Text>
-                    </View>
-                  );
-                })}
-              </View>
+            {/* Insights */}
+            <InsightsCard tips={tips} period={period} />
+
+            {/* KPI grid */}
+            <View style={styles.metricsGrid}>
+              <MetricCard
+                label="Total"
+                value={`${total.toFixed(2)} €`}
+                icon="cash-outline"
+                sub={periodLabel}
+                accent
+              />
+              <MetricCard
+                label="Propinas"
+                value={String(realPeriod.length)}
+                icon="receipt-outline"
+              />
+              <MetricCard
+                label="Media"
+                value={`${avg.toFixed(2)} €`}
+                icon="analytics-outline"
+              />
+              {bestTip > 0 && (
+                <MetricCard
+                  label="Mejor propina"
+                  value={`${bestTip.toFixed(2)} €`}
+                  icon="star-outline"
+                />
+              )}
+              {bestDay && (
+                <MetricCard
+                  label="Mejor día"
+                  value={`${bestDay.amount.toFixed(2)} €`}
+                  icon="trophy-outline"
+                  sub={bestDay.date}
+                />
+              )}
+              {topEmployee && (
+                <MetricCard
+                  label="Top empleado"
+                  value={`${topEmployee.amount.toFixed(2)} €`}
+                  icon="person-outline"
+                  sub={topEmployee.name.split(" ")[0]}
+                />
+              )}
             </View>
+
+            {/* Chart */}
+            <BarChart data={chartData} period={period} />
 
             {/* By employee */}
             {byEmployee.length > 0 && (
               <View style={styles.employeeSection}>
-                <Text style={styles.empSectionTitle}>Por persona</Text>
+                <Text style={styles.empSectionTitle}>Por persona · total histórico</Text>
                 <View style={styles.empList}>
-                  {byEmployee.slice(0, 6).map(([name, amount]) => (
-                    <View key={name} style={styles.empRow}>
-                      <View style={styles.empAvatar}>
-                        <Text style={styles.empAvatarText}>
-                          {name.trim().split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
-                        </Text>
+                  {byEmployee.slice(0, 6).map(([name, amount], i) => {
+                    const topAmount = byEmployee[0][1];
+                    const pct = topAmount > 0 ? (amount / topAmount) * 100 : 0;
+                    return (
+                      <View key={name} style={styles.empRow}>
+                        <View style={styles.empRank}>
+                          <Text style={styles.empRankText}>{i + 1}</Text>
+                        </View>
+                        <View style={styles.empAvatar}>
+                          <Text style={styles.empAvatarText}>
+                            {name.trim().split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
+                          </Text>
+                        </View>
+                        <View style={styles.empBody}>
+                          <View style={styles.empTop}>
+                            <Text style={styles.empName} numberOfLines={1}>{name}</Text>
+                            <Text style={styles.empAmount}>{amount.toFixed(2)} €</Text>
+                          </View>
+                          <View style={styles.empBarBg}>
+                            <View style={[styles.empBarFill, { width: `${pct}%` as `${number}%` }]} />
+                          </View>
+                        </View>
                       </View>
-                      <Text style={styles.empName} numberOfLines={1}>{name}</Text>
-                      <Text style={styles.empAmount}>{amount.toFixed(2)} €</Text>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
             )}
           </>
         )}
+
+        <View style={{ height: 24 }} />
       </View>
     </ScrollView>
-  );
-}
-
-function MetricCard({ label, value, icon, sub }: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; sub?: string }) {
-  return (
-    <View style={styles.metricCard}>
-      <View style={styles.metricIcon}>
-        <Ionicons name={icon} size={16} color={C.VIOLET_PRIMARY} />
-      </View>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      {sub && <Text style={styles.metricSub}>{sub}</Text>}
-    </View>
   );
 }
 
@@ -263,45 +556,7 @@ const styles = StyleSheet.create({
   title: { color: C.TEXT_PRIMARY, fontSize: 28, fontWeight: "800" },
   subtitle: { color: C.TEXT_SECONDARY, fontSize: 13, marginTop: 4, marginBottom: 20 },
 
-  emptyBox: {
-    backgroundColor: C.BG_CARD,
-    borderRadius: RADIUS.lg,
-    padding: 40,
-    alignItems: "center",
-    gap: 10,
-    ...SHADOW.sm,
-    borderWidth: 1,
-    borderColor: C.BORDER,
-    marginTop: 8,
-  },
-  emptyTitle: { color: C.TEXT_PRIMARY, fontSize: 17, fontWeight: "800", marginTop: 8 },
-  emptyText: { color: C.TEXT_SECONDARY, fontSize: 13, textAlign: "center", lineHeight: 20, maxWidth: 260 },
-
-  metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
-  metricCard: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: C.BG_CARD,
-    borderRadius: RADIUS.md,
-    padding: 14,
-    ...SHADOW.sm,
-    borderWidth: 1,
-    borderColor: C.BORDER,
-  },
-  metricIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: C.VIOLET_SUBTLE,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-  },
-  metricLabel: { color: C.TEXT_TERTIARY, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
-  metricValue: { color: C.TEXT_PRIMARY, fontSize: 22, fontWeight: "800" },
-  metricSub: { color: C.TEXT_TERTIARY, fontSize: 11, marginTop: 2 },
-
-  modeSwitch: {
+  periodRow: {
     flexDirection: "row",
     gap: 6,
     marginBottom: 16,
@@ -313,53 +568,19 @@ const styles = StyleSheet.create({
     borderColor: C.BORDER,
     alignSelf: "flex-start",
   },
-  modeBtn: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: RADIUS.full },
-  modeBtnActive: { backgroundColor: C.VIOLET_PRIMARY },
-  modeBtnText: { color: C.TEXT_TERTIARY, fontWeight: "600", fontSize: 13 },
-  modeBtnTextActive: { color: "#FFFFFF", fontWeight: "700" },
+  periodBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: RADIUS.full },
+  periodBtnActive: { backgroundColor: C.VIOLET_PRIMARY },
+  periodText: { color: C.TEXT_TERTIARY, fontWeight: "600", fontSize: 13 },
+  periodTextActive: { color: "#FFFFFF", fontWeight: "700" },
 
-  chartCard: {
-    backgroundColor: C.BG_CARD,
-    borderRadius: RADIUS.lg,
-    paddingVertical: 20,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-    ...SHADOW.md,
-    borderWidth: 1,
-    borderColor: C.BORDER,
-  },
-  chartTitle: { color: C.TEXT_SECONDARY, fontSize: 12, fontWeight: "600", marginBottom: 16 },
-  chart: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    height: 160,
-  },
-  barWrapper: { alignItems: "center", flex: 1 },
-  bar: { width: "60%", maxWidth: 28, backgroundColor: C.VIOLET_PRIMARY, borderRadius: 6, opacity: 0.85 },
-  barActive: { backgroundColor: C.VIOLET_DARK, opacity: 1 },
-  barZero: { backgroundColor: C.BORDER, opacity: 0.5 },
-  barLabel: { color: C.TEXT_TERTIARY, marginTop: 8, fontSize: 11, fontWeight: "500" },
-  tooltip: {
-    position: "absolute",
-    top: -34,
-    backgroundColor: C.TEXT_PRIMARY,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: RADIUS.xs,
-    zIndex: 10,
-    alignSelf: "center",
-    minWidth: 50,
-    alignItems: "center",
-  },
-  tooltipText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+  metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
 
   employeeSection: { marginTop: 4 },
-  empSectionTitle: { color: C.TEXT_PRIMARY, fontSize: 17, fontWeight: "800", marginBottom: 12 },
-  empList: { gap: 8 },
+  empSectionTitle: { color: C.TEXT_PRIMARY, fontSize: 17, fontWeight: "800", marginBottom: 14 },
+  empList: { gap: 10 },
   empRow: {
     backgroundColor: C.BG_CARD,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -368,17 +589,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.BORDER,
   },
+  empRank: {
+    width: 20,
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  empRankText: { color: C.TEXT_TERTIARY, fontSize: 13, fontWeight: "700" },
   empAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: C.VIOLET_SUBTLE,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: C.VIOLET_BORDER,
+    flexShrink: 0,
   },
   empAvatarText: { color: C.VIOLET_PRIMARY, fontSize: 12, fontWeight: "800" },
-  empName: { flex: 1, color: C.TEXT_PRIMARY, fontSize: 14, fontWeight: "600" },
+  empBody: { flex: 1 },
+  empTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 5 },
+  empName: { flex: 1, color: C.TEXT_PRIMARY, fontSize: 14, fontWeight: "700", marginRight: 8 },
   empAmount: { color: C.GREEN_POSITIVE, fontSize: 14, fontWeight: "800" },
+  empBarBg: { height: 4, backgroundColor: C.BORDER, borderRadius: 2 },
+  empBarFill: { height: 4, backgroundColor: C.VIOLET_PRIMARY, borderRadius: 2, opacity: 0.7 },
 });

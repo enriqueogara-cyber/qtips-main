@@ -1,8 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { View } from "react-native";
+import React from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { C } from "../../constants/theme";
+import { C, RADIUS, SHADOW } from "../../constants/theme";
+
+// ─── Regular tab icon with active pill ───────────────────────────────────────
 
 type TabIconProps = {
   name: keyof typeof Ionicons.glyphMap;
@@ -15,20 +18,55 @@ type TabIconProps = {
 function TabIcon({ name, focusedName, size = 23, color, focused }: TabIconProps) {
   return (
     <View
-      style={{
-        backgroundColor: focused ? C.VIOLET_SUBTLE : "transparent",
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 44,
-      }}
+      style={[
+        styles.tabIconWrap,
+        focused && styles.tabIconWrapActive,
+      ]}
     >
       <Ionicons name={focused ? focusedName : name} size={size} color={color} />
     </View>
   );
 }
+
+// ─── Special QR center button ─────────────────────────────────────────────────
+
+type QRTabBtnProps = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onPress?: ((event: any) => void) | undefined;
+  accessibilityState?: { selected?: boolean };
+  children?: React.ReactNode;
+};
+
+function QRTabButton({ onPress, accessibilityState }: QRTabBtnProps) {
+  const focused = accessibilityState?.selected ?? false;
+
+  return (
+    <Pressable
+      onPress={onPress as () => void}
+      style={styles.qrBtnOuter}
+      accessibilityLabel="QR"
+      accessibilityRole="button"
+      accessibilityState={{ selected: focused }}
+    >
+      {({ pressed }) => (
+        <View style={styles.qrBtnInner}>
+          <View
+            style={[
+              styles.qrCircle,
+              focused && styles.qrCircleFocused,
+              pressed && styles.qrCirclePressed,
+            ]}
+          >
+            <Ionicons name="qr-code" size={26} color="#FFFFFF" />
+          </View>
+          <Text style={[styles.qrLabel, focused && styles.qrLabelFocused]}>QR</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -39,16 +77,16 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: "#FFFFFF",
-          borderTopColor: "#E7E9F0",
+          borderTopColor: C.BORDER,
           borderTopWidth: 1,
-          height: 60 + insets.bottom,
+          height: 62 + insets.bottom,
           paddingBottom: insets.bottom + 6,
           paddingTop: 6,
           elevation: 20,
-          shadowColor: "#6D4AFF",
+          shadowColor: "#6C4DFF",
           shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.08,
-          shadowRadius: 16,
+          shadowOpacity: 0.07,
+          shadowRadius: 20,
         },
         tabBarActiveTintColor: C.VIOLET_PRIMARY,
         tabBarInactiveTintColor: C.TEXT_TERTIARY,
@@ -82,10 +120,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="qr"
         options={{
-          title: "QR",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="qr-code-outline" focusedName="qr-code" size={24} color={color} focused={focused} />
-          ),
+          title: "",
+          tabBarButton: (props) => <QRTabButton {...props} />,
         }}
       />
 
@@ -110,12 +146,67 @@ export default function TabsLayout() {
       />
 
       {/* Hidden tabs — not in navigation bar */}
-      <Tabs.Screen name="index"              options={{ href: null }} />
-      <Tabs.Screen name="login"              options={{ href: null }} />
-      <Tabs.Screen name="explore"            options={{ href: null }} />
-      <Tabs.Screen name="settings/bank"      options={{ href: null }} />
-      <Tabs.Screen name="settings/employees" options={{ href: null }} />
+      <Tabs.Screen name="index"               options={{ href: null }} />
+      <Tabs.Screen name="login"               options={{ href: null }} />
+      <Tabs.Screen name="explore"             options={{ href: null }} />
+      <Tabs.Screen name="settings/bank"       options={{ href: null }} />
+      <Tabs.Screen name="settings/employees"  options={{ href: null }} />
       <Tabs.Screen name="settings/tip-config" options={{ href: null }} />
     </Tabs>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  // Regular tab icon
+  tabIconWrap: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: RADIUS.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 44,
+  },
+  tabIconWrapActive: {
+    backgroundColor: C.VIOLET_SUBTLE,
+  },
+
+  // QR special button
+  qrBtnOuter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qrBtnInner: {
+    alignItems: "center",
+    gap: 3,
+    marginTop: -8, // lift the circle slightly above the bar
+  },
+  qrCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: C.VIOLET_PRIMARY,
+    alignItems: "center",
+    justifyContent: "center",
+    ...SHADOW.violet,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+  },
+  qrCircleFocused: {
+    backgroundColor: C.VIOLET_DARK,
+  },
+  qrCirclePressed: {
+    transform: [{ scale: 0.93 }],
+  },
+  qrLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: C.TEXT_TERTIARY,
+    marginTop: 1,
+  },
+  qrLabelFocused: {
+    color: C.VIOLET_PRIMARY,
+  },
+});
