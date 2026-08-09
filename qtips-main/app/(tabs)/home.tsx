@@ -652,18 +652,19 @@ export default function HomeScreen() {
   );
 
   const onboardingSteps: CheckStep[] = useMemo(() => {
-    if (!restaurant) return [];
+    if (IS_DEMO) return [];
+    // Always generate 3 steps even when restaurant doc hasn't loaded yet
     return [
       {
         id: "restaurant",
         label: "Información del restaurante",
-        done: Boolean(restaurant.name),
+        done: Boolean(restaurant?.name),
         hint: "Añade el nombre y dirección de tu local",
         route: "/setup-restaurant",
       },
       {
         id: "stripe",
-        label: "Conectar cuenta de cobros",
+        label: "Configurar cobros",
         done: stripeOk,
         hint: "Necesario para recibir propinas reales",
         route: "/settings/bank",
@@ -679,10 +680,10 @@ export default function HomeScreen() {
   }, [restaurant, stripeOk, employeeCount]);
 
   const isOnboardingComplete =
-    IS_DEMO || onboardingSteps.length === 0 || onboardingSteps.every((s) => s.done);
+    IS_DEMO || (onboardingSteps.length > 0 && onboardingSteps.every((s) => s.done));
 
   const restaurantName =
-    loadingRestaurant ? "" : (IS_DEMO ? DEMO_RESTAURANT.name : restaurant?.name || "Mi Restaurante");
+    loadingRestaurant ? "" : (IS_DEMO ? DEMO_RESTAURANT.name : restaurant?.name ?? "");
   const initials = restaurantName ? getInitials(restaurantName) : "Q";
   const topPad = insets.top > 0 ? insets.top + 8 : 28;
 
@@ -723,7 +724,11 @@ export default function HomeScreen() {
             <View style={styles.headerText}>
               <Text style={styles.greeting}>{getGreeting()}</Text>
               <View style={styles.nameRow}>
-                <Text style={styles.title} numberOfLines={1}>{restaurantName}</Text>
+                {restaurantName ? (
+                  <Text style={styles.title} numberOfLines={1}>{restaurantName}</Text>
+                ) : (
+                  <Text style={styles.titleEmpty}>Completa tu perfil</Text>
+                )}
                 <DemoChip />
               </View>
               {(IS_DEMO ? DEMO_RESTAURANT.address : restaurant?.address) ? (
@@ -855,6 +860,7 @@ const styles = StyleSheet.create({
   greeting: { color: C.TEXT_SECONDARY, fontSize: 14, fontWeight: "500", marginBottom: 3 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   title: { color: C.TEXT_PRIMARY, fontSize: 24, fontWeight: "800" },
+  titleEmpty: { color: C.TEXT_TERTIARY, fontSize: 18, fontWeight: "600", fontStyle: "italic" },
   address: { color: C.TEXT_TERTIARY, marginTop: 4, fontSize: 13 },
   avatar: {
     width: 48, height: 48, borderRadius: 24,

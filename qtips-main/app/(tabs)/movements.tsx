@@ -168,6 +168,8 @@ function TipRow({ tip }: { tip: Tip }) {
 export default function MovementsScreen() {
   const [tips, setTips] = useState<Tip[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [user, setUser] = useState<User | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showTests, setShowTests] = useState(false);
@@ -194,29 +196,38 @@ export default function MovementsScreen() {
         orderBy("createdAt", "desc")
       );
 
-      const unsub = onSnapshot(q, (snap) => {
-        setTips(
-          snap.docs.map((d) => ({
-            id: d.id,
-            restaurantId: d.data().restaurantId ?? "",
-            employeeName: d.data().employeeName ?? "Propina general",
-            employeeId: d.data().employeeId ?? null,
-            amount: d.data().amount ?? 0,
-            amountCents: d.data().amountCents ?? 0,
-            feeCents: d.data().feeCents ?? 0,
-            currency: d.data().currency ?? "eur",
-            status: d.data().status ?? "paid",
-            isTest: d.data().isTest ?? false,
-            createdAt: d.data().createdAt ?? null,
-            paidAt: d.data().paidAt ?? null,
-          }))
-        );
-        setLoading(false);
-      });
+      const unsub = onSnapshot(
+        q,
+        (snap) => {
+          setError(null);
+          setTips(
+            snap.docs.map((d) => ({
+              id: d.id,
+              restaurantId: d.data().restaurantId ?? "",
+              employeeName: d.data().employeeName ?? "Propina general",
+              employeeId: d.data().employeeId ?? null,
+              amount: d.data().amount ?? 0,
+              amountCents: d.data().amountCents ?? 0,
+              feeCents: d.data().feeCents ?? 0,
+              currency: d.data().currency ?? "eur",
+              status: d.data().status ?? "paid",
+              isTest: d.data().isTest ?? false,
+              createdAt: d.data().createdAt ?? null,
+              paidAt: d.data().paidAt ?? null,
+            }))
+          );
+          setLoading(false);
+        },
+        (err) => {
+          console.warn("Error loading movements:", err.code);
+          setError("No se pudieron cargar los movimientos. Comprueba tu conexión.");
+          setLoading(false);
+        }
+      );
       return unsub;
     });
     return unsubAuth;
-  }, []);
+  }, [retryCount]);
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -350,6 +361,23 @@ export default function MovementsScreen() {
         {loading ? (
           <View style={styles.list}>
             {[1, 2, 3, 4, 5].map((k) => <TipCardSkeleton key={k} />)}
+          </View>
+        ) : error ? (
+          <View style={styles.errorBox}>
+            <Ionicons name="cloud-offline-outline" size={36} color={C.ERROR} />
+            <Text style={styles.errorTitle}>Error de conexión</Text>
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable
+              style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.75 }]}
+              onPress={() => {
+                setError(null);
+                setLoading(true);
+                setRetryCount((c) => c + 1);
+              }}
+            >
+              <Ionicons name="refresh-outline" size={15} color="#FFFFFF" />
+              <Text style={styles.retryText}>Reintentar</Text>
+            </Pressable>
           </View>
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -501,4 +529,29 @@ const styles = StyleSheet.create({
   loadMoreText: { color: C.VIOLET_PRIMARY, fontSize: 14, fontWeight: "700" },
 
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  // Error state
+  errorBox: {
+    marginTop: 8,
+    backgroundColor: C.BG_CARD,
+    borderRadius: RADIUS.lg,
+    padding: 32,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#FED7D7",
+  },
+  errorTitle: { color: C.TEXT_PRIMARY, fontSize: 17, fontWeight: "800", marginTop: 4 },
+  errorText: { color: C.TEXT_SECONDARY, fontSize: 13, textAlign: "center", lineHeight: 20, maxWidth: 260 },
+  retryBtn: {
+    marginTop: 8,
+    backgroundColor: C.VIOLET_PRIMARY,
+    borderRadius: RADIUS.sm,
+    paddingVertical: 11,
+    paddingHorizontal: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });

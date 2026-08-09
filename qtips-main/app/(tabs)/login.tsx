@@ -97,10 +97,9 @@ export default function LoginScreen() {
       } else {
         router.replace("/setup-restaurant" as any);
       }
-    } catch (err: any) {
-      console.log("AUTH ERROR CODE:", err?.code);
-      console.log("AUTH ERROR MSG:", err?.message);
-      setError(getNiceAuthError(err?.code));
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      setError(getNiceAuthError(e?.code));
     } finally {
       setLoading(false);
     }

@@ -45,6 +45,85 @@ const MODES: ModeOption[] = [
   },
 ];
 
+// ─── Tip distribution simulator ──────────────────────────────────────────────
+
+const SIM_EXAMPLES: Record<TipMode, { icon: keyof typeof Ionicons.glyphMap; title: string; desc: string }> = {
+  restaurant: {
+    icon: "storefront-outline",
+    title: "Fondo del restaurante",
+    desc: "El cliente paga 20 €. La propina entra en el fondo del restaurante y la distribuís como equipo.",
+  },
+  employee_optional: {
+    icon: "people-outline",
+    title: "Cliente elige (o no)",
+    desc: "El cliente ve la lista de empleados. Puede elegir a quién va la propina o dejarlo al restaurante.",
+  },
+  employee_required: {
+    icon: "person-outline",
+    title: "Siempre a un empleado",
+    desc: "El cliente debe elegir un empleado antes de pagar. Cada propina va directamente a esa persona.",
+  },
+};
+
+function TipSimulator({ mode }: { mode: TipMode }) {
+  const ex = SIM_EXAMPLES[mode];
+  return (
+    <View style={simStyles.card}>
+      <View style={simStyles.header}>
+        <View style={simStyles.iconWrap}>
+          <Ionicons name="eye-outline" size={14} color={C.VIOLET_PRIMARY} />
+        </View>
+        <Text style={simStyles.headerLabel}>Ejemplo con una propina de 20 €</Text>
+      </View>
+      <View style={simStyles.body}>
+        <View style={simStyles.modeIcon}>
+          <Ionicons name={ex.icon} size={20} color={C.VIOLET_PRIMARY} />
+        </View>
+        <View style={simStyles.textBlock}>
+          <Text style={simStyles.modeTitle}>{ex.title}</Text>
+          <Text style={simStyles.modeDesc}>{ex.desc}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const simStyles = StyleSheet.create({
+  card: {
+    backgroundColor: C.VIOLET_SUBTLE,
+    borderRadius: RADIUS.md,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: C.VIOLET_BORDER,
+  },
+  header: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 12 },
+  iconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(108,77,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerLabel: { color: C.VIOLET_DARK, fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
+  body: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  modeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(108,77,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  textBlock: { flex: 1 },
+  modeTitle: { color: C.VIOLET_DARK, fontSize: 14, fontWeight: "800", marginBottom: 4 },
+  modeDesc: { color: C.VIOLET_DARK, fontSize: 13, lineHeight: 18, opacity: 0.85 },
+});
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
 export default function TipConfigScreen() {
   const router = useRouter();
   const [mode, setMode] = useState<TipMode>("restaurant");
@@ -154,6 +233,10 @@ export default function TipConfigScreen() {
             </Text>
           </View>
         )}
+
+        {/* Distribution simulator */}
+        <Text style={styles.sectionLabel}>VISTA PREVIA</Text>
+        <TipSimulator mode={mode} />
 
         <Pressable
           style={({ pressed }) => [

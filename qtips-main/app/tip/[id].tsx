@@ -16,7 +16,7 @@ import {
 import { C, RADIUS, SHADOW } from "../../constants/theme";
 import { FUNCTIONS_URL } from "../../lib/functions";
 
-const PRESET_AMOUNTS = [1, 2, 3, 5];
+const PRESET_AMOUNTS = [2, 5, 10];
 
 type Restaurant = {
   name: string;

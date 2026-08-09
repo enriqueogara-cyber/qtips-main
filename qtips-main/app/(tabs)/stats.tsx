@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { C, RADIUS, SHADOW } from "../../constants/theme";
 import { DEMO_TIPS, IS_DEMO } from "../../lib/demo-data";
@@ -324,6 +325,7 @@ const ins = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function StatsScreen() {
+  const router = useRouter();
   const [period, setPeriod] = useState<StatPeriod>("7d");
   const [tips, setTips] = useState<TipDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -437,7 +439,9 @@ export default function StatsScreen() {
           <EmptyState
             icon="bar-chart-outline"
             title="Todavía no hay datos"
-            description="Comparte tu QR o realiza un pago de prueba para empezar a ver estadísticas."
+            description="Cuando recibas tus primeras propinas podrás ver la evolución de tu restaurante."
+            actionLabel="Compartir mi QR"
+            onAction={() => router.push("/qr")}
           />
         ) : (
           <>

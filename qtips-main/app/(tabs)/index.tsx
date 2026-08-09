@@ -3,6 +3,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { C } from "../../constants/theme";
 import { auth, db } from "../../lib/firebase";
 
 export default function IndexScreen() {
@@ -41,12 +42,12 @@ export default function IndexScreen() {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#000",
+          backgroundColor: C.BG_SCREEN,
           justifyContent: "center",
           alignItems: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#34d399" />
+        <ActivityIndicator size="large" color={C.VIOLET_PRIMARY} />
       </View>
     );
   }

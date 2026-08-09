@@ -15,9 +15,9 @@ export default function TipSuccess() {
           <Ionicons name="checkmark" size={44} color="#FFFFFF" />
         </View>
 
-        <Text style={styles.title}>¡Propina enviada!</Text>
+        <Text style={styles.title}>¡Gracias por apoyar al equipo!</Text>
         <Text style={styles.subtitle}>
-          Muchas gracias por tu generosidad.{"\n"}El equipo lo agradece de corazón.
+          Tu propina se ha enviado correctamente.{"\n"}El equipo lo agradece de corazón.
         </Text>
 
         {/* Divider */}
